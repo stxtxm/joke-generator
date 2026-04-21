@@ -1,376 +1,119 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Joke Generator</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Générateur de Blagues</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😂</text></svg>">
   <style>
-    :root {
-      --bg-primary: #0a0a0f;
-      --bg-secondary: #12121a;
-      --bg-card: #1a1a24;
-      --accent: #8b5cf6;
-      --accent-hover: #a78bfa;
-      --text: #f4f4f5;
-      --text-muted: #71717a;
-      --punchline: #fbbf24;
+    :root{
+      --bg:#0b1020; --card:#0f1724; --muted:#9ca3af; --accent:#8b5cf6; --white:#f8fafc;
     }
-    
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    html, body {
-      height: 100%;
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;padding:16px;background:linear-gradient(180deg,var(--bg) 0%, #071129 100%);color:var(--white);font-family:Inter,system-ui,Arial;display:flex;align-items:center;justify-content:center;
     }
-    
-    body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-      background-image: 
-        radial-gradient(ellipse at 20% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
-    }
-    
-    .container {
-      width: 100%;
-      max-width: 520px;
-      text-align: center;
-    }
-    
-    .logo {
-      font-size: 4rem;
-      margin-bottom: 0.25rem;
-      animation: bounce 2s ease-in-out infinite;
-      filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.4));
-    }
-    
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-12px); }
-    }
-    
-    h1 {
-      font-size: 2rem;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      background: linear-gradient(135deg, #fff 0%, #a78bfa 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 1rem;
-    }
-    
-    .joke-box {
-      background: var(--bg-card);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 1.5rem;
-      padding: 2rem;
-      min-height: 160px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 2rem;
-      box-shadow: 
-        0 4px 24px rgba(0,0,0,0.3),
-        inset 0 1px 0 rgba(255,255,255,0.05);
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .joke-box::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, transparent 40%, rgba(139, 92, 246, 0.05)];
-      pointer-events: none;
-    }
-    
-    .joke-content {
-      font-size: 1.25rem;
-      line-height: 1.7;
-      position: relative;
-      z-index: 1;
-    }
-    
-    .joke-content p {
-      margin: 0.75rem 0;
-    }
-    
-    .joke-content .question {
-      color: var(--text-muted);
-    }
-    
-    .joke-content .punchline {
-      font-weight: 700;
-      color: #22c55e;
-      font-size: 1.4rem;
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .joke-content {
-      animation: fadeIn 0.4s ease-out;
-    }
-    
-    .loading {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-      color: var(--text-muted);
-    }
-    
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(139, 92, 246, 0.2);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    
-    .votes {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      margin-bottom: 1.5rem;
-    }
-    
-    .vote-btn {
-      background: var(--bg-card);
-      border: 1px solid rgba(255,255,255,0.08);
-      color: var(--text-muted);
-      width: 80px;
-      height: 80px;
-      border-radius: 24px;
-      font-size: 2.5rem;
-      cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .vote-btn:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-    }
-    
-    .vote-btn:active {
-      transform: scale(0.95);
-    }
-    
-    .vote-btn.like:hover { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #22c55e; }
-    .vote-btn.dislike:hover { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #ef4444; }
-    
-    .vote-btn:disabled {
-      opacity: 0.2 !important;
-      cursor: not-allowed;
-      transform: none !important;
-      box-shadow: none !important;
-    }
-    
-    .vote-btn:disabled:hover {
-      background: var(--bg-card) !important;
-      border-color: rgba(255,255,255,0.08) !important;
-      color: var(--text-muted) !important;
-    }
-    
-    .vote-btn.voted-like { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; color: #22c55e; }
-    .vote-btn.voted-dislike { background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444; }
-    
-    .footer {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      opacity: 0.5;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    
-    .footer-dot {
-      width: 6px;
-      height: 6px;
-      background: #22c55e;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    
-    @media (max-width: 480px) {
-      .joke-box {
-        padding: 1.5rem;
-      }
-      .joke-content {
-        font-size: 1.1rem;
-      }
+    .wrap{width:100%;max-width:720px}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .logo{font-size:40px}
+    h1{font-size:20px;margin:0}
+    p.subtitle{margin:0;color:var(--muted);font-size:13px}
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    select,input[type="text"]{flex:1;min-width:140px;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--card);color:var(--white)}
+    button.btn{background:linear-gradient(90deg,var(--accent),#a78bfa);border:none;color:white;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:14px;border:1px solid rgba(255,255,255,0.03);min-height:140px;display:flex;align-items:center;justify-content:center}
+    .joke{font-size:17px;line-height:1.6;text-align:center}
+    .meta{display:flex;justify-content:space-between;margin-top:10px;color:var(--muted);font-size:12px}
+
+    .spinner{width:36px;height:36px;border-radius:50%;border:4px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin .9s linear infinite;margin-bottom:8px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    @media (max-width:520px){
+      .controls{flex-direction:column}
+      button.btn{width:100%}
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">😂</div>
-    <h1>Joke Generator</h1>
-    
-    <div class="joke-box">
-      <div id="joke" class="loading">
-        <div class="spinner"></div>
-        <span>Génération...</span>
+  <div class="wrap">
+    <header>
+      <div class="logo">😂</div>
+      <div>
+        <h1>Générateur de Blagues</h1>
+        <p class="subtitle">Locale — rapide — adapté mobile</p>
+      </div>
+    </header>
+
+    <div class="controls">
+      <select id="style" aria-label="Style">
+        <option value="one-liner">One-liner</option>
+        <option value="dad-joke">Dad joke</option>
+        <option value="pun">Pun</option>
+      </select>
+
+      <input id="topic" type="text" placeholder="Sujet (optionnel)" aria-label="Sujet" />
+
+      <button id="gen" class="btn">Nouvelle blague</button>
+    </div>
+
+    <div class="card">
+      <div id="out" class="joke">
+        <div style="text-align:center;color:var(--muted)">Appuie sur "Nouvelle blague" pour commencer</div>
       </div>
     </div>
-    
-    <div class="votes">
-      <button class="vote-btn dislike" onclick="rate(-1)" aria-label="Pas drole" disabled>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
-      </button>
-      <button class="vote-btn like" onclick="rate(1)" aria-label="Drole" disabled>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      </button>
+
+    <div class="meta">
+      <div id="model">Model: —</div>
+      <div id="status">Status: ready</div>
     </div>
-    
-    <div class="footer"><span class="footer-dot"></span>Live</div>
   </div>
 
   <script>
-    const jokeEl = document.getElementById('joke');
-    let currentJokeId = null;
-    let currentVote = 0;
-    
-    async function fetchJoke() {
-      currentVote = 0;
-      disableButtons();
-      updateVoteButtons();
-      
-      jokeEl.className = 'loading';
-      jokeEl.innerHTML = '<div class="spinner"></div><span>Génération...</span>';
-      
-      await new Promise(r => setTimeout(r, 500));
-      
-      try {
-        const res = await fetch('/joke');
-        const data = await res.json();
-        
-        const text = data.joke.replace(/\\n/g, '\n').trim();
-        currentJokeId = data.id;
-        
-        let html = parseJoke(text);
-        
-        jokeEl.className = 'joke-content';
-        jokeEl.innerHTML = html;
-      } catch (e) {
-        jokeEl.className = 'joke-content';
-        jokeEl.innerHTML = '<p style="color:#ef4444">Erreur. Actualisez!</p>';
+    const gen = document.getElementById('gen');
+    const out = document.getElementById('out');
+    const styleEl = document.getElementById('style');
+    const topicEl = document.getElementById('topic');
+    const modelEl = document.getElementById('model');
+    const statusEl = document.getElementById('status');
+
+    function setLoading(yes){
+      out.innerHTML = yes ? '<div style="display:flex;flex-direction:column;align-items:center"><div class="spinner"></div><div style="color:var(--muted)">Génération...</div></div>' : '';
+      statusEl.textContent = yes ? 'generating' : 'ready';
+    }
+
+    async function health(){
+      try{
+        const r = await fetch('/api/health');
+        const j = await r.json();
+        modelEl.textContent = 'Model: ' + (j.model||'inconnu');
+      }catch(e){
+        modelEl.textContent = 'Model: inaccessible';
       }
     }
-    
-    function updateVoteButtons() {
-      const likeBtn = document.querySelector('.vote-btn.like');
-      const dislikeBtn = document.querySelector('.vote-btn.dislike');
-      
-      likeBtn.classList.remove('voted-like');
-      dislikeBtn.classList.remove('voted-dislike');
-      
-      likeBtn.disabled = false;
-      dislikeBtn.disabled = false;
-      
-      if (currentVote === 1) {
-        likeBtn.classList.add('voted-like');
-        likeBtn.disabled = false;
-      }
-      if (currentVote === -1) {
-        dislikeBtn.classList.add('voted-dislike');
-        dislikeBtn.disabled = false;
-      }
-    }
-    
-    function disableButtons() {
-      const likeBtn = document.querySelector('.vote-btn.like');
-      const dislikeBtn = document.querySelector('.vote-btn.dislike');
-      likeBtn.disabled = true;
-      dislikeBtn.disabled = true;
-    }
-    
-    function parseJoke(text) {
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^(voici|voici une|alors|alors voila|répondre|réponse|answer|question)\s*[:\-]?\s*/i));
-      
-      let question = '';
-      let punchline = '';
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const lower = line.toLowerCase();
-        
-        if (lower.includes('question') || lower.includes('?') || lower.startsWith('q:') || lower.startsWith('pourquoi') || lower.startsWith('comment')) {
-          question = line.replace(/^(question\s*[:\-]?\s*)/i, '').replace(/^q:\s*/i, '').trim();
-          if (!question.endsWith('?')) question += '?';
-          
-          if (i + 1 < lines.length) {
-            const next = lines[i + 1].replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').trim();
-            if (next && next.length > 3) {
-              punchline = next;
-              break;
-            }
-          }
-        } else if (lower.includes('réponse') || lower.includes('answer') || lower.startsWith('r:') || lower.startsWith('parce') || lower.startsWith('car')) {
-          punchline = line.replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').replace(/^parce\s*que\s*/i, '').replace(/^car\s*/i, '').trim();
-          if (i > 0) {
-            question = lines[i - 1].replace(/^(question\s*[:\-]?\s*)/i, '').replace(/^q:\s*/i, '').trim();
-            if (!question.endsWith('?')) question += '?';
-          }
-          break;
+
+    async function generate(){
+      setLoading(true);
+      const payload = { style: styleEl.value, topic: topicEl.value };
+      try{
+        const r = await fetch('/api/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const j = await r.json();
+        if(j.joke){
+          out.innerHTML = '<div>' + escapeHtml(j.joke).replace(/\n/g,'<br>') + '</div>';
+        }else{
+          out.innerHTML = '<div style="color:#fb7185">Erreur: aucune réponse</div>';
         }
-      }
-      
-      if (!question && !punchline && lines.length >= 2) {
-        question = lines[0];
-        punchline = lines.slice(1).join(' ');
-      }
-      
-      if (!question && !punchline) {
-        return `<p>${text}</p>`;
-      }
-      
-      return `<p class="question">${escapeHtml(question)}</p><p class="punchline">${escapeHtml(punchline)}</p>`;
+      }catch(e){
+        out.innerHTML = '<div style="color:#fb7185">Erreur: ' + escapeHtml(e.toString()) + '</div>';
+      }finally{ setLoading(false); }
     }
-    
-    function escapeHtml(text) {
-      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-    
-    async function rate(rating) {
-      if (!currentJokeId) return;
-      try {
-        await fetch('/feedback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ joke_id: currentJokeId, rating })
-        });
-        currentVote = rating;
-        updateVoteButtons();
-        setTimeout(fetchJoke, 800);
-      } catch (e) {
-        console.error('Vote failed:', e);
-      }
-    }
-    
-    fetchJoke();
+
+    function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    gen.addEventListener('click', generate);
+    health();
   </script>
 </body>
 </html>
