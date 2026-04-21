@@ -238,9 +238,12 @@
   <script>
     const jokeEl = document.getElementById('joke');
     let currentJokeId = null;
-    let currentJokeText = '';
+    let currentVote = 0;
     
     async function fetchJoke() {
+      currentVote = 0;
+      updateVoteButtons();
+      
       jokeEl.className = 'loading';
       jokeEl.innerHTML = '<div class="spinner"></div><span>Génération...</span>';
       
@@ -251,7 +254,6 @@
         const data = await res.json();
         
         const text = data.joke.replace(/\\n/g, '\n').trim();
-        currentJokeText = text;
         currentJokeId = data.id;
         
         let html = parseJoke(text);
@@ -262,6 +264,17 @@
         jokeEl.className = 'joke-content';
         jokeEl.innerHTML = '<p style="color:#ef4444">Erreur. Actualisez!</p>';
       }
+    }
+    
+    function updateVoteButtons() {
+      const likeBtn = document.querySelector('.vote-btn.like');
+      const dislikeBtn = document.querySelector('.vote-btn.dislike');
+      
+      likeBtn.classList.remove('voted-like');
+      dislikeBtn.classList.remove('voted-dislike');
+      
+      if (currentVote === 1) likeBtn.classList.add('voted-like');
+      if (currentVote === -1) dislikeBtn.classList.add('voted-dislike');
     }
     
     function parseJoke(text) {
@@ -319,7 +332,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ joke_id: currentJokeId, rating })
         });
-        fetchJoke();
+        currentVote = rating;
+        updateVoteButtons();
+        setTimeout(fetchJoke, 800);
       } catch (e) {
         console.error('Vote failed:', e);
       }
