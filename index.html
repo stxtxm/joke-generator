@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Joke Generator</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😂</text></svg>">
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a24;
+      --accent: #8b5cf6;
+      --accent-hover: #a78bfa;
+      --text: #f4f4f5;
+      --text-muted: #71717a;
+      --punchline: #fbbf24;
+    }
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    html, body {
+      height: 100%;
+    }
+    
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background-image: 
+        radial-gradient(ellipse at 20% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 520px;
+      text-align: center;
+    }
+    
+    .logo {
+      font-size: 4rem;
+      margin-bottom: 0.25rem;
+      animation: bounce 2s ease-in-out infinite;
+      filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.4));
+    }
+    
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-12px); }
+    }
+    
+    h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff 0%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 1rem;
+    }
+    
+    .joke-box {
+      background: var(--bg-card);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 1.5rem;
+      padding: 2rem;
+      min-height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 2rem;
+      box-shadow: 
+        0 4px 24px rgba(0,0,0,0.3),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .joke-box::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent 40%, rgba(139, 92, 246, 0.05)];
+      pointer-events: none;
+    }
+    
+    .joke-content {
+      font-size: 1.25rem;
+      line-height: 1.7;
+      position: relative;
+      z-index: 1;
+    }
+    
+    .joke-content p {
+      margin: 0.75rem 0;
+    }
+    
+    .joke-content .question {
+      color: var(--text-muted);
+    }
+    
+    .joke-content .punchline {
+      font-weight: 700;
+      color: var(--punchline);
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .joke-content {
+      animation: fadeIn 0.4s ease-out;
+    }
+    
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      color: var(--text-muted);
+    }
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(139, 92, 246, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .votes {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .vote-btn {
+      background: var(--bg-card);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text-muted);
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      font-size: 1.75rem;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .vote-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    }
+    
+    .vote-btn:active {
+      transform: scale(0.95);
+    }
+    
+    .vote-btn.like:hover { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #22c55e; }
+    .vote-btn.dislike:hover { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #ef4444; }
+    
+    .vote-btn.voted-like { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; color: #22c55e; }
+    .vote-btn.voted-dislike { background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444; }
+    
+    .footer {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      opacity: 0.5;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .footer-dot {
+      width: 6px;
+      height: 6px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    @media (max-width: 480px) {
+      .joke-box {
+        padding: 1.5rem;
+      }
+      .joke-content {
+        font-size: 1.1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">😂</div>
+    <h1>Joke Generator</h1>
+    
+    <div class="joke-box">
+      <div id="joke" class="loading">
+        <div class="spinner"></div>
+        <span>Génération...</span>
+      </div>
+    </div>
+    
+    <div class="votes">
+      <button class="vote-btn dislike" onclick="rate(-1)" aria-label="Pas drole">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3l4 9h5l-7 6-7-6h5z"/></svg>
+      </button>
+      <button class="vote-btn like" onclick="rate(1)" aria-label="Drole">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 16l-4-9H5l7-6 7 6h-5z"/></svg>
+      </button>
+    </div>
+    
+    <div class="footer"><span class="footer-dot"></span>Live</div>
+  </div>
+
+  <script>
+    const jokeEl = document.getElementById('joke');
+    let currentJokeId = null;
+    let currentJokeText = '';
+    
+    async function fetchJoke() {
+      jokeEl.className = 'loading';
+      jokeEl.innerHTML = '<div class="spinner"></div><span>Génération...</span>';
+      
+      await new Promise(r => setTimeout(r, 500));
+      
+      try {
+        const res = await fetch('/joke');
+        const data = await res.json();
+        
+        const text = data.joke.replace(/\\n/g, '\n').trim();
+        currentJokeText = text;
+        currentJokeId = data.id;
+        
+        const lines = text.split('\n').filter(l => l.trim());
+        
+        let html = '';
+        if (lines.length > 1) {
+          html = `<p class="question">${lines[0]}?</p><p class="punchline">${lines.slice(1).join(' ')}</p>`;
+        } else {
+          html = `<p>${text}</p>`;
+        }
+        
+        jokeEl.className = 'joke-content';
+        jokeEl.innerHTML = html;
+      } catch (e) {
+        jokeEl.className = 'joke-content';
+        jokeEl.innerHTML = '<p style="color:#ef4444">Erreur. Actualisez!</p>';
+      }
+    }
+    
+    async function rate(rating) {
+      if (!currentJokeId) return;
+      try {
+        await fetch('/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ joke_id: currentJokeId, rating })
+        });
+        fetchJoke();
+      } catch (e) {
+        console.error('Vote failed:', e);
+      }
+    }
+    
+    fetchJoke();
+  </script>
+</body>
+</html>
