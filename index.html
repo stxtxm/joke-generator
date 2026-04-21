@@ -253,14 +253,7 @@
         currentJokeText = text;
         currentJokeId = data.id;
         
-        const lines = text.split('\n').filter(l => l.trim());
-        
-        let html = '';
-        if (lines.length > 1) {
-          html = `<p class="question">${lines[0]}?</p><p class="punchline">${lines.slice(1).join(' ')}</p>`;
-        } else {
-          html = `<p>${text}</p>`;
-        }
+        let html = parseJoke(text);
         
         jokeEl.className = 'joke-content';
         jokeEl.innerHTML = html;
@@ -268,6 +261,53 @@
         jokeEl.className = 'joke-content';
         jokeEl.innerHTML = '<p style="color:#ef4444">Erreur. Actualisez!</p>';
       }
+    }
+    
+    function parseJoke(text) {
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^(voici|voici une|alors|alors voila)/i));
+      
+      let question = '';
+      let punchline = '';
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const lower = line.toLowerCase();
+        
+        if (lower.includes('question') || lower.includes('?') || lower.startsWith('q:') || lower.startsWith('pourquoi') || lower.startsWith('comment')) {
+          question = line.replace(/^(question\s*[:\-]?\s*)/i, '').replace(/^q:\s*/i, '').trim();
+          if (!question.endsWith('?')) question += '?';
+          
+          if (i + 1 < lines.length) {
+            const next = lines[i + 1].replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').trim();
+            if (next && next.length > 3) {
+              punchline = next;
+              break;
+            }
+          }
+        } else if (lower.includes('réponse') || lower.includes('answer') || lower.startsWith('r:') || lower.startsWith('parce') || lower.startsWith('car')) {
+          punchline = line.replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').trim();
+          if (i > 0) {
+            question = lines[i - 1].replace(/^(question\s*[:\-]?\s*)/i, '').replace(/^q:\s*/i, '').trim();
+            if (!question.endsWith('?')) question += '?';
+          }
+          break;
+        }
+      }
+      
+      if (!question && !punchline && lines.length >= 2) {
+        question = lines[0];
+        punchline = lines.slice(1).join(' ');
+      }
+      
+      if (!question && !punchline) {
+        return `<p>${text}</p>`;
+      }
+      
+      return `<p class="question">${escapeHtml(question)}</p><p class="punchline">${escapeHtml(punchline)}</p>`;
+    }
+    
+    function escapeHtml(text) {
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
     
     async function rate(rating) {
