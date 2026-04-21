@@ -54,20 +54,44 @@ function httpRequest(url, method, data) {
 
 async function getNewJoke() {
   const theme = getRandomTheme();
-  const prompt = `Raconte une blague courte et drôle en français. Format: Pourquoi [question]? [réponse]. Sois créatif et original.`;
+  const prompt = `Raconte une blague française drole et courte. 
+格式: "Pourquoi [question]? [réponse]"
+La blague doit être COMPLETE sans coupure.
+Topic: ${theme}
+
+Exemples:
+Pourquoi les développeurs sont-ils mauvais en amour? Parce qu'ils parlent en JavaScript!
+Pourquoi le developer a mangé sa pizza? Car il aimait le code!`;
   
   try {
     const response = await httpRequest(`${OLLAMA_HOST}/api/generate`, 'POST', {
       model: OLLAMA_MODEL,
       prompt: prompt,
-      stream: false
+      stream: false,
+      options: {
+        temperature: 0.9,
+        top_p: 0.95,
+        num_predict: 150,
+        stop: []
+      }
     });
     
     const data = JSON.parse(response);
     let joke = data.response || '';
-    joke = joke.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
-    joke = joke.replace(/^[\s>\-]*/, '').replace(/"/g, '').trim();
-    return joke.substring(0, 180);
+    
+    joke = joke.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    joke = joke.replace(/^[>\s\-:]*/, '').replace(/"/g, '').replace(/\n/g, ' ');
+    
+    joke = joke.replace(/^(voici|alors|voila|réponse|question|bien|Voilà)\s*[:\-]*/i, '');
+    
+    if (joke.length > 200) joke = joke.substring(0, 200);
+    
+    let lastPunct = Math.max(joke.lastIndexOf('!'), joke.lastIndexOf('.'));
+    if (lastPunct > joke.length * 0.7) {
+      joke = joke.substring(0, lastPunct + 1);
+    }
+    
+    return joke.trim();
   } catch(e) {
     console.error('Error:', e.message);
     return 'Erreur generation';
