@@ -308,7 +308,7 @@
     }
     
     function parseJoke(text) {
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^(voici|voici une|alors|alors voila)/i));
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^(voici|voici une|alors|alors voila|répondre|réponse|answer|question)\s*[:\-]?\s*/i));
       
       let question = '';
       let punchline = '';

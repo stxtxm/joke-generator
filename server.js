@@ -54,7 +54,7 @@ function httpRequest(url, method, data) {
 
 async function getNewJoke() {
   const theme = getRandomTheme();
-  const prompt = `UNE blague drole en francais uniquement. Question? Reponse. Theme: ${theme}`;
+  const prompt = `Raconte une blague courte et drôle en français. Format: Pourquoi [question]? [réponse]. Sois créatif et original.`;
   
   try {
     const response = await httpRequest(`${OLLAMA_HOST}/api/generate`, 'POST', {
