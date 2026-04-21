@@ -177,9 +177,16 @@
     .vote-btn.dislike:hover { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #ef4444; }
     
     .vote-btn:disabled {
-      opacity: 0.3;
+      opacity: 0.2 !important;
       cursor: not-allowed;
       transform: none !important;
+      box-shadow: none !important;
+    }
+    
+    .vote-btn:disabled:hover {
+      background: var(--bg-card) !important;
+      border-color: rgba(255,255,255,0.08) !important;
+      color: var(--text-muted) !important;
     }
     
     .vote-btn.voted-like { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; color: #22c55e; }
