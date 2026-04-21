@@ -2,11 +2,12 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const Database = require('better-sqlite3');
 
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://ollama:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'tinyllama';
 
 const HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
@@ -28,31 +29,43 @@ function getUsedJokes() {
   } catch(e) { return ''; }
 }
 
-function getNewJoke() {
+function httpRequest(url, method, data) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port,
+      path: urlObj.pathname,
+      method: method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+    
+    const req = http.request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => resolve(body));
+    });
+    
+    req.on('error', reject);
+    if (data) req.write(JSON.stringify(data));
+    req.end();
+  });
+}
+
+async function getNewJoke() {
   const theme = getRandomTheme();
-  const used = getUsedJokes();
   const prompt = `UNE blague drole en francais uniquement. Question? Reponse. Theme: ${theme}`;
   
   try {
-    const output = execSync('opencode run ' + JSON.stringify(prompt) + ' --model opencode/nemotron-3-super-free', {
-      encoding: 'utf8',
-      timeout: 45000,
-      maxBuffer: 1024 * 50
+    const response = await httpRequest(`${OLLAMA_HOST}/api/generate`, 'POST', {
+      model: OLLAMA_MODEL,
+      prompt: prompt,
+      stream: false
     });
     
-    let cleaned = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/^>.*$/m, '').trim();
-    const lines = cleaned.split('\n').filter(l => l.trim() && !l.includes('En esperant'));
-    
-    let joke = '';
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.length > 10 && !line.includes('?')) {
-        joke = line;
-        break;
-      }
-    }
-    if (!joke && lines.length > 0) joke = lines[lines.length - 1];
-    if (!joke || joke.length < 15) joke = lines.join(' ').substring(0, 150);
+    const data = JSON.parse(response);
+    let joke = data.response || '';
+    joke = joke.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
     joke = joke.replace(/^[\s>\-]*/, '').replace(/"/g, '').trim();
     return joke.substring(0, 180);
   } catch(e) {
@@ -61,12 +74,12 @@ function getNewJoke() {
   }
 }
 
-function getJoke() {
+async function getJoke() {
   let joke = '';
   let attempts = 0;
   
   while (attempts < 3) {
-    joke = getNewJoke();
+    joke = await getNewJoke();
     if (joke && joke.length > 15 && !joke.includes('Erreur')) {
       try {
         const exists = db.prepare('SELECT id FROM jokes WHERE text = ?').get(joke);
@@ -81,11 +94,11 @@ function getJoke() {
   return { text: joke || 'Pas de blague', id: 0 };
 }
 
-const requestHandler = (req, res) => {
+const requestHandler = async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   
   if (url.pathname === '/joke' && req.method === 'GET') {
-    const joke = getJoke();
+    const joke = await getJoke();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ joke: joke.text, id: joke.id }));
   } else if (url.pathname === '/feedback' && req.method === 'POST') {
@@ -116,6 +129,8 @@ const tsIP = process.env.TAILSCALE_IP || 'localhost';
 
 httpsServer.listen(PORT, HOST, () => {
   console.log(`HTTPS: https://${tsIP}:${PORT}`);
+  console.log(`Ollama: ${OLLAMA_HOST}`);
+  console.log(`Model: ${OLLAMA_MODEL}`);
   console.log(`OUVERT`);
 });
 

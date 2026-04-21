@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
@@ -8,6 +6,8 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
     restart: unless-stopped
 
   app:
@@ -17,9 +17,11 @@ services:
       - "3000:3000"
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:1b
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
