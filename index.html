@@ -108,7 +108,8 @@
     
     .joke-content .punchline {
       font-weight: 700;
-      color: var(--punchline);
+      color: #22c55e;
+      font-size: 1.4rem;
     }
     
     @keyframes fadeIn {
@@ -152,10 +153,10 @@
       background: var(--bg-card);
       border: 1px solid rgba(255,255,255,0.08);
       color: var(--text-muted);
-      width: 64px;
-      height: 64px;
-      border-radius: 20px;
-      font-size: 1.75rem;
+      width: 80px;
+      height: 80px;
+      border-radius: 24px;
+      font-size: 2.5rem;
       cursor: pointer;
       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
@@ -224,10 +225,10 @@
     
     <div class="votes">
       <button class="vote-btn dislike" onclick="rate(-1)" aria-label="Pas drole">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3l4 9h5l-7 6-7-6h5z"/></svg>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
       </button>
       <button class="vote-btn like" onclick="rate(1)" aria-label="Drole">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 16l-4-9H5l7-6 7 6h-5z"/></svg>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       </button>
     </div>
     
@@ -285,7 +286,7 @@
             }
           }
         } else if (lower.includes('réponse') || lower.includes('answer') || lower.startsWith('r:') || lower.startsWith('parce') || lower.startsWith('car')) {
-          punchline = line.replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').trim();
+          punchline = line.replace(/^(réponse\s*[:\-]?\s*)/i, '').replace(/^r:\s*/i, '').replace(/^parce\s*que\s*/i, '').replace(/^car\s*/i, '').trim();
           if (i > 0) {
             question = lines[i - 1].replace(/^(question\s*[:\-]?\s*)/i, '').replace(/^q:\s*/i, '').trim();
             if (!question.endsWith('?')) question += '?';
