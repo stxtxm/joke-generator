@@ -237,10 +237,10 @@
     </div>
     
     <div class="votes">
-      <button class="vote-btn dislike" onclick="rate(-1)" aria-label="Pas drole">
+      <button class="vote-btn dislike" onclick="rate(-1)" aria-label="Pas drole" disabled>
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
       </button>
-      <button class="vote-btn like" onclick="rate(1)" aria-label="Drole">
+      <button class="vote-btn like" onclick="rate(1)" aria-label="Drole" disabled>
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       </button>
     </div>
@@ -290,8 +290,14 @@
       likeBtn.disabled = false;
       dislikeBtn.disabled = false;
       
-      if (currentVote === 1) likeBtn.classList.add('voted-like');
-      if (currentVote === -1) dislikeBtn.classList.add('voted-dislike');
+      if (currentVote === 1) {
+        likeBtn.classList.add('voted-like');
+        likeBtn.disabled = false;
+      }
+      if (currentVote === -1) {
+        dislikeBtn.classList.add('voted-dislike');
+        dislikeBtn.disabled = false;
+      }
     }
     
     function disableButtons() {
