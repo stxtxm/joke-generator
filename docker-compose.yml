@@ -17,7 +17,7 @@ services:
       - "3000:3000"
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2:1b
+      - OLLAMA_MODEL=qwen2.5:3b-lowram
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
     depends_on:
       ollama:
