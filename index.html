@@ -176,6 +176,12 @@
     .vote-btn.like:hover { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #22c55e; }
     .vote-btn.dislike:hover { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #ef4444; }
     
+    .vote-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+    
     .vote-btn.voted-like { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; color: #22c55e; }
     .vote-btn.voted-dislike { background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444; }
     
@@ -242,6 +248,7 @@
     
     async function fetchJoke() {
       currentVote = 0;
+      disableButtons();
       updateVoteButtons();
       
       jokeEl.className = 'loading';
@@ -273,8 +280,18 @@
       likeBtn.classList.remove('voted-like');
       dislikeBtn.classList.remove('voted-dislike');
       
+      likeBtn.disabled = false;
+      dislikeBtn.disabled = false;
+      
       if (currentVote === 1) likeBtn.classList.add('voted-like');
       if (currentVote === -1) dislikeBtn.classList.add('voted-dislike');
+    }
+    
+    function disableButtons() {
+      const likeBtn = document.querySelector('.vote-btn.like');
+      const dislikeBtn = document.querySelector('.vote-btn.dislike');
+      likeBtn.disabled = true;
+      dislikeBtn.disabled = true;
     }
     
     function parseJoke(text) {
