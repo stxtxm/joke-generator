@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import JokeCard from './components/JokeCard.js'
 import Controls from './components/Controls.js'
+import Admin from './Admin.js'
 import { generateJoke, rateJoke, getMetrics } from './lib/api.js'
 
 export default function App() {
@@ -45,8 +46,15 @@ export default function App() {
       React.createElement('section', { className: 'card', 'aria-live': 'polite' },
         React.createElement('div', { className: 'logo' }),
         React.createElement('h2', { className: 'title' }, 'Joke Generator'),
-        React.createElement(JokeCard, { joke, loading }),
-        React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+        React.createElement('div', { className: 'nav' },
+          React.createElement('a', { href: '#/' }, 'App'),
+          React.createElement('a', { href: '#/admin' }, 'Admin')
+        ),
+        // Simple client-side hash routing
+        (window.location.hash === '#/admin') ? React.createElement(Admin) : React.createElement(React.Fragment, null,
+          React.createElement(JokeCard, { joke, loading }),
+          React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+        )
       )
     )
   )

@@ -26,3 +26,14 @@ button.icon.active[aria-label="Je n'aime pas"]{background:rgba(239,68,68,0.18);b
   .card{padding:28px}
   .joke{font-size:18px}
 }
+
+/* Admin styles (simple, reused from original admin.html) */
+.admin { text-align: left; max-width: 820px; margin: 0 auto; }
+.admin .box { background: #0f1724; padding: 16px; border-radius: 8px; margin-bottom: 12px }
+.admin input, .admin textarea { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 6px; background: #071026; border: 1px solid #13324a; color: #e6eef8 }
+.admin button { padding: 8px 12px; margin-top: 8px; background: #0ea5a4; border: none; color: #042022; border-radius: 6px }
+.admin ul { padding-left: 20px }
+.admin pre { background: #071826; padding: 12px; border-radius: 6px; overflow: auto }
+
+.nav { display:flex; gap:12px; justify-content:center; margin-bottom:12px }
+.nav a { color: var(--accent); text-decoration: none; font-weight:600 }
