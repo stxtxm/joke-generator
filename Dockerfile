@@ -29,16 +29,17 @@ RUN npm ci --production
 # Copy necessary files
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/*.svg ./
 COPY --from=builder /app/jokes.db ./
 COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/admin.html ./admin.html
+COPY --from=builder /app/exports ./exports
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/exports ./exports
 
 # Generate cert
 RUN mkdir -p /tmp && \
     openssl req -x509 -newkey rsa:2048 -keyout /tmp/key.pem -out /tmp/cert.pem -days 365 -nodes -subj "/CN=localhost" 2>/dev/null || true
-
-RUN chmod +x ./scripts/*.sh || true
 
 EXPOSE 3000
 CMD ["node", "server.js"]
