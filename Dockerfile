@@ -13,6 +13,10 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# Ensure static assets (icons, admin page) are present in dist so the final image can serve them
+RUN cp -v *.svg dist/ || true
+RUN cp -v admin.html dist/ || true
+
 ### Production stage: smaller image that serves built assets and runs the API
 FROM node:22-bookworm AS prod
 WORKDIR /app
@@ -26,6 +30,11 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/*.svg ./
 COPY --from=builder /app/jokes.db ./
+# Copy server-side helpers and scripts used for migrations, admin UI and training
+COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/admin.html ./admin.html
+COPY --from=builder /app/exports ./exports
 COPY --from=builder /app/lib ./lib
 
 # Generate a self-signed cert used by server.js when no certs are provided
