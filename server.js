@@ -26,9 +26,9 @@ app.use(express.json());
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  // Fallback to index.html for client-side routing, but let /api/* pass through
+  // Fallback to index.html for client-side routing, but let /api/* and /admin/* pass through to API routes
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api')) return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/admin')) return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
 } else {
@@ -400,6 +400,93 @@ if (exportIntervalMin > 0) {
 } else {
   console.log('Periodic training export disabled (EXPORT_INTERVAL_MIN=0)');
 }
+
+// --- Training orchestration (runs an external training command) ---
+// Sanitize TRAIN_CMD to avoid literal surrounding quotes being included
+let TRAIN_CMD = process.env.TRAIN_CMD || '';
+// If someone provided the value with surrounding quotes (common mistake in docker-compose), strip them
+if (TRAIN_CMD.length >= 2 && ((TRAIN_CMD.startsWith('"') && TRAIN_CMD.endsWith('"')) || (TRAIN_CMD.startsWith("'") && TRAIN_CMD.endsWith("'")))) {
+  // normalize: check for actual double-quote or single-quote characters
+  if (TRAIN_CMD.startsWith('"') && TRAIN_CMD.endsWith('"')) {
+    TRAIN_CMD = TRAIN_CMD.slice(1, -1);
+  } else if (TRAIN_CMD.startsWith("'") && TRAIN_CMD.endsWith("'")) {
+    TRAIN_CMD = TRAIN_CMD.slice(1, -1);
+  }
+}
+const TRAIN_LOG = path.join(__dirname, 'training.log');
+let trainingProcess = null;
+let trainingMeta = { running: false, pid: null, startedAt: null, exitCode: null };
+
+function appendToLog(chunk) {
+  fs.appendFileSync(TRAIN_LOG, chunk);
+}
+
+function tailFile(filePath, lines = 200) {
+  try {
+    const data = fs.readFileSync(filePath, 'utf8');
+    const arr = data.split(/\r?\n/).filter(Boolean);
+    return arr.slice(-lines).join('\n');
+  } catch (e) {
+    return '';
+  }
+}
+
+function launchTrainingCommand(cmd) {
+  if (!cmd) throw new Error('no command');
+  if (trainingProcess) throw new Error('training already running');
+  const spawn = require('child_process').spawn;
+  const child = spawn('sh', ['-c', cmd], { cwd: __dirname, env: process.env });
+  trainingProcess = child;
+  trainingMeta = { running: true, pid: child.pid, startedAt: new Date().toISOString(), exitCode: null };
+  appendToLog(`\n=== TRAIN START ${trainingMeta.startedAt} CMD=${cmd} ===\n`);
+
+  child.stdout.on('data', d => appendToLog(d.toString()));
+  child.stderr.on('data', d => appendToLog(d.toString()));
+  child.on('error', err => appendToLog(`TRAIN ERROR: ${err && err.message}\n`));
+  child.on('close', code => {
+    trainingMeta.running = false;
+    trainingMeta.exitCode = code;
+    appendToLog(`\n=== TRAIN END ${new Date().toISOString()} EXIT=${code} ===\n`);
+    trainingProcess = null;
+  });
+  return child.pid;
+}
+
+// Trigger training: writes a fresh export and executes TRAIN_CMD (if configured)
+app.post('/admin/trigger-train', (req, res) => {
+  try {
+    if (trainingProcess) return res.status(409).json({ error: 'training already running', meta: trainingMeta });
+    // create export file
+    const filename = writeTrainingExportFile();
+    const exportPath = path.join(EXPORT_DIR, filename);
+
+    if (!TRAIN_CMD) {
+      return res.json({ ok: false, message: 'TRAIN_CMD not configured. Export created.', filename, exportPath });
+    }
+
+    // Replace placeholders in TRAIN_CMD
+    const outDir = path.join(__dirname, 'model-output', filename.replace(/\.jsonl$/, ''));
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const cmd = TRAIN_CMD.replace(/\$\{EXPORT_PATH\}|%EXPORT%/g, exportPath).replace(/\$\{OUTDIR\}|%OUTDIR%/g, outDir).replace(/\$\{EXPORT_FILE\}/g, filename);
+    const pid = launchTrainingCommand(cmd);
+    res.json({ ok: true, pid, filename, exportPath, outDir });
+  } catch (e) {
+    res.status(500).json({ error: e && e.message });
+  }
+});
+
+app.get('/admin/train-status', (req, res) => {
+  const logTail = tailFile(TRAIN_LOG, 200);
+  res.json({ meta: trainingMeta, running: !!trainingProcess, pid: trainingProcess ? trainingProcess.pid : null, logTail });
+});
+
+app.get('/admin/train-log', (req, res) => {
+  const lines = parseInt(req.query.lines || '400', 10);
+  const content = tailFile(TRAIN_LOG, lines);
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(content);
+});
+
 
 const certPath = '/tmp/cert.pem';
 const keyPath = '/tmp/key.pem';

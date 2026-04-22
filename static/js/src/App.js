@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Routes, Route, Link } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import JokeCard from './components/JokeCard.js'
 import Controls from './components/Controls.js'
 import Admin from './Admin.js'
@@ -9,6 +9,7 @@ export default function App() {
   const [joke, setJoke] = useState('Appuyez sur "Nouvelle blague" pour commencer.')
   const [loading, setLoading] = useState(false)
   const [metrics, setMetrics] = useState({ likes: 0, dislikes: 0, rating: 0 })
+  const location = useLocation()
 
   useEffect(() => {
     function onKey(e) {
@@ -48,15 +49,17 @@ export default function App() {
         React.createElement('div', { className: 'logo' }),
         React.createElement('h2', { className: 'title' }, 'Joke Generator'),
         React.createElement('div', { className: 'nav' },
-          React.createElement(Link, { to: '/' }, 'App'),
-          React.createElement(Link, { to: '/admin' }, 'Admin')
+          React.createElement(NavLink, { to: '/', className: ({ isActive }) => isActive ? 'active' : '', end: true }, 'App'),
+          React.createElement(NavLink, { to: '/admin', className: ({ isActive }) => isActive ? 'active' : '' }, 'Admin')
         ),
-        React.createElement(Routes, null,
-          React.createElement(Route, { path: '/', element: React.createElement(React.Fragment, null,
-            React.createElement(JokeCard, { joke, loading }),
-            React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
-          ) }),
-          React.createElement(Route, { path: '/admin', element: React.createElement(Admin) })
+        React.createElement('div', { key: location.pathname, className: 'page-enter-active' },
+          React.createElement(Routes, null,
+            React.createElement(Route, { path: '/', element: React.createElement(React.Fragment, null,
+              React.createElement(JokeCard, { joke, loading }),
+              React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+            ) }),
+            React.createElement(Route, { path: '/admin', element: React.createElement(Admin) })
+          )
         )
       )
     )
