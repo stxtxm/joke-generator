@@ -34,8 +34,6 @@ COPY --from=builder /app/jokes.db ./
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/admin.html ./admin.html
 COPY --from=builder /app/exports ./exports
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/exports ./exports
 
 # Generate cert
 RUN mkdir -p /tmp && \
