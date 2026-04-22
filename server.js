@@ -358,7 +358,7 @@ app.delete('/admin/curated/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Admin: Model management
+// --- Admin: Model management ---
 app.get('/admin/models', async (req, res) => {
   const models = await getAvailableModels();
   res.json({ models, current: currentModel });
@@ -374,100 +374,17 @@ app.post('/admin/set-model', (req, res) => {
 
 app.post('/admin/reset-db', (req, res) => {
   try {
-    console.log("Resetting DB...");
-    if (db) db.close();
-    const dbPath = path.join(__dirname, 'jokes.db');
-    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+    db.close();
+    if (fs.existsSync('jokes.db')) fs.unlinkSync('jokes.db');
     initDb();
-    console.log("DB reset successfully.");
     res.json({ ok: true, message: 'Database reset successfully' });
   } catch (e) {
-    console.error("Reset failed:", e);
     res.status(500).json({ error: 'Reset failed: ' + e.message });
   }
 });
 
-// Export training dataset in a simple JSONL format: {"prompt":...,"completion":...}
-app.get('/admin/export-training', (req, res) => {
-  try {
-    // Use positive feedback as good examples (rating>0), include curated examples marked approved
-    const good = db.prepare('SELECT content FROM feedback WHERE rating > 0 ORDER BY created_at DESC LIMIT 1000').all().map(r => r.content);
-    const curated = db.prepare('SELECT content FROM curated_examples WHERE approved = 1').all().map(r => r.content);
-    const lines = [];
-    curated.forEach(c => lines.push(JSON.stringify({ prompt: 'Génère une blague courte et drôle en français.', completion: c })));
-    good.forEach(g => lines.push(JSON.stringify({ prompt: 'Génère une blague courte et drôle en français.', completion: g })));
-    res.setHeader('Content-Type', 'application/jsonl');
-    res.send(lines.join('\n'));
-  } catch (e) {
-    res.status(500).json({ error: 'export failed' });
-  }
-});
-
-// Exports directory and file-based training exporter
-const EXPORT_DIR = path.join(__dirname, 'exports');
-function ensureExportDir() {
-  if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
-}
-
-function buildTrainingLines() {
-  const good = db.prepare('SELECT content FROM feedback WHERE rating > 0 ORDER BY created_at DESC LIMIT 1000').all().map(r => r.content || '');
-  const curated = db.prepare('SELECT content FROM curated_examples WHERE approved = 1').all().map(r => r.content || '');
-  const lines = [];
-  curated.forEach(c => lines.push(JSON.stringify({ prompt: 'Génère une blague courte et drôle en français.', completion: c })));
-  good.forEach(g => lines.push(JSON.stringify({ prompt: 'Génère une blague courte et drôle en français.', completion: g })));
-  return lines;
-}
-
-function writeTrainingExportFile() {
-  ensureExportDir();
-  const lines = buildTrainingLines();
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `training-${ts}.jsonl`;
-  const filepath = path.join(EXPORT_DIR, filename);
-  fs.writeFileSync(filepath, lines.join('\n'));
-  console.log('Wrote training export:', filepath);
-  return filename;
-}
-
-app.get('/admin/trigger-export', (req, res) => {
-  try {
-    const filename = writeTrainingExportFile();
-    res.json({ ok: true, filename, url: `/exports/${filename}` });
-  } catch (e) {
-    res.status(500).json({ error: 'export failed' });
-  }
-});
-
-// Serve exports folder (files are created by the server)
-ensureExportDir();
-app.use('/exports', express.static(EXPORT_DIR));
-
-app.get('/admin/exports-list', (req, res) => {
-  try {
-    ensureExportDir();
-    const files = fs.readdirSync(EXPORT_DIR).filter(f => f.startsWith('training-')).sort().reverse();
-    res.json({ files });
-  } catch (e) {
-    res.status(500).json({ error: 'list failed' });
-  }
-});
-
-// Periodic export: default every 60 minutes; set EXPORT_INTERVAL_MIN=0 to disable
-const exportIntervalMin = parseInt(process.env.EXPORT_INTERVAL_MIN || '60', 10);
-if (exportIntervalMin > 0) {
-  // perform an initial export on startup
-  try { writeTrainingExportFile(); } catch (e) { console.error('Initial export failed', e && e.message); }
-  setInterval(() => {
-    try { writeTrainingExportFile(); } catch (e) { console.error('Periodic export failed', e && e.message); }
-  }, exportIntervalMin * 60 * 1000);
-  console.log(`Scheduled periodic training exports every ${exportIntervalMin} minutes`);
-} else {
-  console.log('Periodic training export disabled (EXPORT_INTERVAL_MIN=0)');
-}
-
 const certPath = '/tmp/cert.pem';
 const keyPath = '/tmp/key.pem';
-
 
 try {
   const options = { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
