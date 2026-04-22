@@ -17,6 +17,8 @@ RUN npm run build
 RUN cp -v *.svg dist/ || true
 RUN cp -v admin.html dist/ || true
 
+# Ensure node_modules for production are installed in production image (already done by npm ci --production)
+
 ### Production stage: smaller image that serves built assets and runs the API
 FROM node:22-bookworm AS prod
 WORKDIR /app
@@ -36,6 +38,9 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/admin.html ./admin.html
 COPY --from=builder /app/exports ./exports
 COPY --from=builder /app/lib ./lib
+
+# Ensure any helper scripts are executable in the production image
+RUN chmod +x ./scripts/*.sh || true
 
 # Generate a self-signed cert used by server.js when no certs are provided
 RUN mkdir -p /tmp && \
