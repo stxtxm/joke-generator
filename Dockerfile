@@ -15,12 +15,12 @@ RUN npm run build && \
     cp -v *.svg dist/ || true && \
     cp -v admin.html dist/ || true
 
-### Production stage: light image
-FROM node:22-alpine AS prod
+### Production stage: use Debian for better compatibility with native modules
+FROM node:22-bookworm-slim AS prod
 WORKDIR /app
 
-# Install runtime dependencies (libc6-compat for better-sqlite3 native module)
-RUN apk add --no-cache openssl libc6-compat
+# Install runtime dependencies (minimal)
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 # Install production dependencies only
 COPY package.json package-lock.json* ./
