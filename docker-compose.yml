@@ -11,7 +11,9 @@ services:
     restart: unless-stopped
 
   app:
-    build: .
+    build:
+      context: .
+      target: prod
     container_name: joke-app
     ports:
       - "3000:3000"
@@ -19,8 +21,9 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma2:2b}
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
+    # In production we don't mount the source tree; the image contains the built app.
+    # Keep a named volume for node_modules if you need to persist it locally during development.
     volumes:
-      - .:/app
       - /app/node_modules
     depends_on:
       ollama:
