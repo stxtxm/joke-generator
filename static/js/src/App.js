@@ -6,7 +6,7 @@ import Admin from './Admin.js'
 import { generateJoke, rateJoke, getMetrics } from './lib/api.js'
 
 export default function App() {
-  const [joke, setJoke] = useState('Appuyez sur "Nouvelle blague" pour commencer.')
+  const [joke, setJoke] = useState('')
   const [loading, setLoading] = useState(false)
   const [metrics, setMetrics] = useState({ likes: 0, dislikes: 0, rating: 0 })
   const [userRating, setUserRating] = useState(0)
@@ -35,7 +35,7 @@ export default function App() {
   }
 
   function handleRate(r) {
-    if (!joke || joke.startsWith('Appuyez') || joke.startsWith('Erreur')) return
+    if (!joke || joke === '' || loading) return
     if (userRating === r) {
       setUserRating(0)
       rateJoke(joke, 0).catch(() => {})
