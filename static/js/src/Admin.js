@@ -17,7 +17,27 @@ export default function Admin() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  const [status, setStatus] = useState({ running: false, logTail: '' })
+
+  async function loadStatus() {
+    const r = await fetch('/admin/train-status')
+    const j = await r.json()
+    setStatus(j)
+  }
+
+  useEffect(() => {
+    load()
+    loadStatus()
+    const interval = setInterval(loadStatus, 2000)
+    return () => clearInterval(interval)
+  }, [])
+
+  async function triggerTrain() {
+    const r = await fetch('/admin/trigger-train', { method: 'POST' })
+    const j = await r.json()
+    if (j.error) alert(j.error)
+    loadStatus()
+  }
 
   async function add() {
     if (!text.trim()) return alert('content required')
@@ -62,6 +82,12 @@ export default function Admin() {
         React.createElement('ul', null, examples.map(rw => React.createElement('li', { key: rw.id },
           React.createElement('strong', null, rw.approved ? '✓' : ''), ' ', rw.content, ' ', React.createElement('button', { onClick: () => del(rw.id) }, 'Del')
         )))
+      ),
+
+      React.createElement('div', { className: 'box' },
+        React.createElement('h3', null, 'Training'),
+        React.createElement('button', { onClick: triggerTrain, disabled: status.running }, status.running ? 'Training in progress...' : 'Trigger Fine-tuning'),
+        React.createElement('pre', { style: { marginTop: '12px' } }, status.logTail)
       ),
 
       React.createElement('div', { className: 'box' },
