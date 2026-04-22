@@ -359,6 +359,31 @@ app.delete('/admin/curated/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin: Model management
+app.get('/admin/models', async (req, res) => {
+  const models = await getAvailableModels();
+  res.json({ models, current: currentModel });
+});
+
+app.post('/admin/set-model', (req, res) => {
+  const { model } = req.body;
+  if (!model) return res.status(400).send();
+  currentModel = model;
+  console.log(`Model switched to: ${currentModel}`);
+  res.json({ ok: true, current: currentModel });
+});
+
+app.post('/admin/reset-db', (req, res) => {
+  try {
+    db.close();
+    if (fs.existsSync('jokes.db')) fs.unlinkSync('jokes.db');
+    initDb();
+    res.json({ ok: true, message: 'Database reset successfully' });
+  } catch (e) {
+    res.status(500).json({ error: 'Reset failed: ' + e.message });
+  }
+});
+
 // Export training dataset in a simple JSONL format: {"prompt":...,"completion":...}
 app.get('/admin/export-training', (req, res) => {
   try {
