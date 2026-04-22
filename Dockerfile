@@ -19,8 +19,8 @@ RUN npm run build && \
 FROM node:22-alpine AS prod
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache openssl
+# Install runtime dependencies (libc6-compat for better-sqlite3 native module)
+RUN apk add --no-cache openssl libc6-compat
 
 # Install production dependencies only
 COPY package.json package-lock.json* ./
