@@ -58,7 +58,7 @@ const PORT = process.env.PORT || 3000;
 const OLLAMA_HOST = (process.env.OLLAMA_HOST || 'http://ollama:11434').replace(/\/$/, '');
 const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
 // Prefer environment variable (set in docker-compose). Default to llama3:2b
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3:2b';
+let currentModel = process.env.OLLAMA_MODEL || 'llama3:2b';
 
 app.use(cors());
 app.use(express.json());
@@ -68,9 +68,11 @@ app.use(express.json());
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  // Fallback to index.html for client-side routing, but let /api/* and /admin/* pass through to API routes
+  // Fallback to index.html for client-side routing, but let /api/* and /admin/* API routes pass through
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/admin')) return next();
+    // If it's an API call or a specific admin API route, let it pass to Express handlers
+    if (req.path.startsWith('/api/') || req.path.startsWith('/admin/')) return next();
+    // Otherwise, it's a client-side route, serve index.html
     res.sendFile(path.join(distPath, 'index.html'));
   });
 } else {
@@ -94,47 +96,49 @@ function analyzeJoke(joke) {
   };
 }
 
-function buildPrompt(bestJokes, stats, recentJokes, worstJokes) {
-  // Exemples de haute qualité pour le few-shot
+function buildPrompt(bestJokes, stats) {
+  // Gemma2 is excellent at following complex instruction sets and few-shot examples.
+  // We provide a persona and strict output constraints.
+  
   const curated = [
     "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
     "J'ai acheté un GPS pour mon frigo: maintenant il sait où je vais, et moi aussi.",
     "Mon réveil et moi, on a un accord: il sonne, je le nie."
   ];
 
-  let p = `Tu es un humoriste francophone talentueux. 
-Génère UNE SEULE blague en FRANÇAIS, courte, originale et drôle.
-
-FORMAT STRICT:
-- 1 à 2 phrases maximum.
-- Texte brut uniquement.
-- AUCUNE introduction, AUCUNE explication, AUCUNE question rhétorique.
-
-EXEMPLES DE STYLE ATTENDU:
+  let p = `<|system|>
+Tu es un comédien français expert en humour court, absurde et incisif.
+Ta mission est de générer UNE SEULE blague.
+Suis ces règles strictes :
+1. Langue : Français.
+2. Longueur : 1 à 2 phrases max.
+3. Format : Texte brut seulement.
+4. Style : Efficace, drôle, surprenant. Pas d'explication.
+5. Restrictions : PAS de blagues sur : politique, religion, violence, haine. Évite "Toto".
+<|user|>
+Génère une blague en suivant ces exemples de style :
 ${curated.map(ex => `- ${ex}`).join('\n')}
 `;
 
-  // Contexte et préférences
+  // Feedback analysis (Inject user preferences)
   if (stats && stats.totalLikes > 0) {
-    p += `\nCONSEILS DE STYLE: Les utilisateurs apprécient la brièveté.`;
-    if ((stats.emojiRate || 0) > 0.25) p += ` Utilise des emojis avec parcimonie.`;
+    p += `\nINSTRUCTION SPÉCIALE : Tes précédentes blagues ayant le plus de succès sont courtes et incisives.`;
+  }
+  
+  // Few-shot injection (from best jokes in DB)
+  if (bestJokes && bestJokes.length > 0) {
+    p += `\n\nEXEMPLES INSPIRANTS (issus de tes succès passés) :\n` +
+         bestJokes.map(j => `- ${j.content}`).join('\n');
   }
 
-  // Restrictions
-  p += `\n\nRESTRICTIONS:
-- Sujets INTERDITS: escargot, limace, politique, religion, violence, haine.
-- Évite les blagues de "Toto" ou les devinettes trop classiques.
-- Pas d'adresse directe à l'utilisateur.
-- Pas de répétition de thèmes récents.
-
-Réponds uniquement par la blague.`;
+  p += `\n\n<|assistant|>`;
 
   return p;
 }
 
 async function callOllama(prompt) {
   const payload = {
-    model: OLLAMA_MODEL,
+    model: currentModel,
     prompt,
     stream: false,
     options: { temperature: 0.85, num_predict: 120, top_p: 0.92 }
@@ -192,7 +196,7 @@ async function generateWithFallback(prompt) {
   // try models reported by Ollama
   const available = await getAvailableModels();
   for (const m of available) {
-    if (!m || m === OLLAMA_MODEL) continue;
+    if (!m || m === currentModel) continue;
     try {
       // temporarily override model for this call
       const payload = { model: m, prompt, stream: false, options: { temperature: 0.85, num_predict: 120, top_p: 0.92 } };
@@ -433,106 +437,9 @@ if (exportIntervalMin > 0) {
   console.log('Periodic training export disabled (EXPORT_INTERVAL_MIN=0)');
 }
 
-// --- Training orchestration (runs an external training command) ---
-// Sanitize TRAIN_CMD to avoid literal surrounding quotes being included
-let TRAIN_CMD = process.env.TRAIN_CMD || '';
-// If someone provided the value with surrounding quotes (common mistake in docker-compose), strip them
-if (TRAIN_CMD.length >= 2 && ((TRAIN_CMD.startsWith('"') && TRAIN_CMD.endsWith('"')) || (TRAIN_CMD.startsWith("'") && TRAIN_CMD.endsWith("'")))) {
-  // normalize: check for actual double-quote or single-quote characters
-  if (TRAIN_CMD.startsWith('"') && TRAIN_CMD.endsWith('"')) {
-    TRAIN_CMD = TRAIN_CMD.slice(1, -1);
-  } else if (TRAIN_CMD.startsWith("'") && TRAIN_CMD.endsWith("'")) {
-    TRAIN_CMD = TRAIN_CMD.slice(1, -1);
-  }
-}
-const TRAIN_LOG = path.join(__dirname, 'training.log');
-let trainingProcess = null;
-let trainingMeta = { running: false, pid: null, startedAt: null, exitCode: null };
-
-function appendToLog(chunk) {
-  fs.appendFileSync(TRAIN_LOG, chunk);
-}
-
-function tailFile(filePath, lines = 200) {
-  try {
-    const data = fs.readFileSync(filePath, 'utf8');
-    const arr = data.split(/\r?\n/).filter(Boolean);
-    return arr.slice(-lines).join('\n');
-  } catch (e) {
-    return '';
-  }
-}
-
-function launchTrainingCommand(cmd) {
-  if (!cmd) throw new Error('no command');
-  if (trainingProcess) throw new Error('training already running');
-  const spawn = require('child_process').spawn;
-  const child = spawn('sh', ['-c', cmd], { cwd: __dirname, env: process.env });
-  trainingProcess = child;
-  trainingMeta = { running: true, pid: child.pid, startedAt: new Date().toISOString(), exitCode: null };
-  appendToLog(`\n=== TRAIN START ${trainingMeta.startedAt} CMD=${cmd} ===\n`);
-
-  child.stdout.on('data', d => appendToLog(d.toString()));
-  child.stderr.on('data', d => appendToLog(d.toString()));
-  child.on('error', err => appendToLog(`TRAIN ERROR: ${err && err.message}\n`));
-  child.on('close', code => {
-    trainingMeta.running = false;
-    trainingMeta.exitCode = code;
-    appendToLog(`\n=== TRAIN END ${new Date().toISOString()} EXIT=${code} ===\n`);
-    trainingProcess = null;
-  });
-  return child.pid;
-}
-
-// Trigger training: writes a fresh export and executes TRAIN_CMD (if configured)
-app.post('/admin/trigger-train', (req, res) => {
-  try {
-    if (trainingProcess) return res.status(409).json({ error: 'training already running', meta: trainingMeta });
-    // create export file
-    const filename = writeTrainingExportFile();
-    const exportPath = path.join(EXPORT_DIR, filename);
-
-    if (!TRAIN_CMD) {
-      return res.json({ ok: false, message: 'TRAIN_CMD not configured. Export created.', filename, exportPath });
-    }
-
-    // Replace placeholders in TRAIN_CMD
-    const outDir = path.join(__dirname, 'model-output', filename.replace(/\.jsonl$/, ''));
-    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-    const cmd = TRAIN_CMD.replace(/\$\{EXPORT_PATH\}|%EXPORT%/g, exportPath).replace(/\$\{OUTDIR\}|%OUTDIR%/g, outDir).replace(/\$\{EXPORT_FILE\}/g, filename);
-    const pid = launchTrainingCommand(cmd);
-    res.json({ ok: true, pid, filename, exportPath, outDir });
-  } catch (e) {
-    res.status(500).json({ error: e && e.message });
-  }
-});
-
-app.post('/admin/reset-db', (req, res) => {
-  try {
-    db.close();
-    if (fs.existsSync('jokes.db')) fs.unlinkSync('jokes.db');
-    initDb();
-    res.json({ ok: true, message: 'Database reset successfully' });
-  } catch (e) {
-    res.status(500).json({ error: 'Reset failed: ' + e.message });
-  }
-});
-
-app.get('/admin/train-status', (req, res) => {
-  const logTail = tailFile(TRAIN_LOG, 200);
-  res.json({ meta: trainingMeta, running: !!trainingProcess, pid: trainingProcess ? trainingProcess.pid : null, logTail });
-});
-
-app.get('/admin/train-log', (req, res) => {
-  const lines = parseInt(req.query.lines || '400', 10);
-  const content = tailFile(TRAIN_LOG, lines);
-  res.setHeader('Content-Type', 'text/plain');
-  res.send(content);
-});
-
-
 const certPath = '/tmp/cert.pem';
 const keyPath = '/tmp/key.pem';
+
 
 try {
   const options = { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
@@ -546,4 +453,4 @@ try {
 }
 
 // Log Ollama config at startup
-console.log(`Using Ollama host: ${OLLAMA_HOST}, URL: ${OLLAMA_URL}, model: ${OLLAMA_MODEL}`);
+console.log(`Using Ollama host: ${OLLAMA_HOST}, URL: ${OLLAMA_URL}, model: ${currentModel}`);

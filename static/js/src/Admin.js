@@ -6,42 +6,32 @@ export default function Admin() {
   const [notes, setNotes] = useState('')
   const [approved, setApproved] = useState(false)
   const [exportsText, setExportsText] = useState('')
+  const [models, setModels] = useState({ list: [], current: '' })
 
   async function load() {
     try {
       const r = await fetch('/admin/curated')
       const rows = await r.json()
       setExamples(rows)
+
+      const mr = await fetch('/admin/models')
+      const mj = await mr.json()
+      setModels({ list: mj.models, current: mj.current })
     } catch (e) {
-      console.error(e)
+      console.error('Admin load failed', e)
     }
   }
 
-  const [status, setStatus] = useState({ running: false, logTail: '' })
+  useEffect(() => { load() }, [])
 
-  async function loadStatus() {
-    const r = await fetch('/admin/train-status')
-    const j = await r.json()
-    setStatus(j)
-  }
-
-  useEffect(() => {
+  async function setModel(m) {
+    await fetch('/admin/set-model', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ model: m }) })
     load()
-    loadStatus()
-    const interval = setInterval(loadStatus, 2000)
-    return () => clearInterval(interval)
-  }, [])
-
-  async function triggerTrain() {
-    const r = await fetch('/admin/trigger-train', { method: 'POST' })
-    const j = await r.json()
-    if (j.error) alert(j.error)
-    loadStatus()
   }
 
   async function add() {
     if (!text.trim()) return alert('content required')
-    await fetch('/admin/curated', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: text, notes, approved: approved ? 1 : 0 }) })
+    await fetch('/admin/curated', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content: text, notes, approved: approved ? 1 : 0 }) })
     setText(''); setNotes(''); setApproved(false)
     load()
   }
@@ -51,42 +41,40 @@ export default function Admin() {
     load()
   }
 
-  async function triggerExport() {
-    const r = await fetch('/admin/trigger-export')
-    const j = await r.json()
-    setExportsText(JSON.stringify(j, null, 2))
-  }
-
-  async function listExports() {
-    const r = await fetch('/admin/exports-list')
-    const j = await r.json()
-    setExportsText(JSON.stringify(j, null, 2))
-  }
-
   async function resetDb() {
     if (!confirm('Are you sure you want to reset the database? This cannot be undone.')) return
     const r = await fetch('/admin/reset-db', { method: 'POST' })
     const j = await r.json()
-    if (j.ok) {
-        alert('Database reset!')
-        load()
-    } else {
-        alert('Reset failed: ' + j.error)
-    }
+    j.ok ? alert('Database reset!') : alert('Reset failed: ' + j.error)
+    load()
   }
 
   return (
     React.createElement('div', { className: 'admin' },
-      React.createElement('h2', null, 'Curated Examples'),
+      React.createElement('h2', null, 'Admin Panel'),
+      
       React.createElement('div', { className: 'box' },
-        React.createElement('button', { onClick: resetDb, style: { background: '#ef4444' } }, 'Reset Database')
+        React.createElement('h3', null, 'Model Selection'),
+        React.createElement('select', { 
+            value: models.current, 
+            onChange: e => setModel(e.target.value),
+            style: { width: '100%', padding: '8px', background: '#071026', color: '#e6eef8' } 
+        },
+            models.list.map(m => React.createElement('option', { key: m, value: m }, m))
+        )
       ),
+
       React.createElement('div', { className: 'box' },
+        React.createElement('button', { onClick: resetDb, style: { background: '#ef4444', color: 'white', border: 'none', padding: '10px', borderRadius: '4px' } }, 'Reset Database')
+      ),
+
+      React.createElement('div', { className: 'box' },
+        React.createElement('h3', null, 'Curated Examples'),
         React.createElement('label', null, 'Example text'),
         React.createElement('textarea', { rows: 3, value: text, onChange: e => setText(e.target.value) }),
         React.createElement('label', null, 'Notes (optional)'),
         React.createElement('input', { value: notes, onChange: e => setNotes(e.target.value) }),
-        React.createElement('div', null,
+        React.createElement('div', { style: { marginTop: '10px' } },
           React.createElement('label', null, React.createElement('input', { type: 'checkbox', checked: approved, onChange: e => setApproved(e.target.checked) }), ' Approved')
         ),
         React.createElement('button', { onClick: add }, 'Add Example')
@@ -95,23 +83,8 @@ export default function Admin() {
       React.createElement('div', { className: 'box' },
         React.createElement('h3', null, 'Existing'),
         React.createElement('ul', null, examples.map(rw => React.createElement('li', { key: rw.id },
-          React.createElement('strong', null, rw.approved ? '✓' : ''), ' ', rw.content, ' ', React.createElement('button', { onClick: () => del(rw.id) }, 'Del')
+          React.createElement('strong', null, rw.approved ? '✓ ' : ''), rw.content, ' ', React.createElement('button', { onClick: () => del(rw.id), style: { background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '2px 8px', fontSize: '12px' } }, 'Del')
         )))
-      ),
-
-      React.createElement('div', { className: 'box' },
-        React.createElement('h3', null, 'Training'),
-        React.createElement('button', { onClick: triggerTrain, disabled: status.running }, status.running ? 'Training in progress...' : 'Trigger Fine-tuning'),
-        React.createElement('pre', { style: { marginTop: '12px' } }, status.logTail)
-      ),
-
-      React.createElement('div', { className: 'box' },
-        React.createElement('h3', null, 'Exports'),
-        React.createElement('div', null,
-          React.createElement('button', { onClick: triggerExport }, 'Trigger Export Now'), ' ',
-          React.createElement('button', { onClick: listExports }, 'List Exports')
-        ),
-        React.createElement('pre', null, exportsText)
       )
     )
   )
