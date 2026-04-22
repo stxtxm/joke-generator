@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { Routes, Route, Link } from 'react-router-dom'
 import JokeCard from './components/JokeCard.js'
 import Controls from './components/Controls.js'
 import Admin from './Admin.js'
@@ -47,13 +48,15 @@ export default function App() {
         React.createElement('div', { className: 'logo' }),
         React.createElement('h2', { className: 'title' }, 'Joke Generator'),
         React.createElement('div', { className: 'nav' },
-          React.createElement('a', { href: '#/' }, 'App'),
-          React.createElement('a', { href: '#/admin' }, 'Admin')
+          React.createElement(Link, { to: '/' }, 'App'),
+          React.createElement(Link, { to: '/admin' }, 'Admin')
         ),
-        // Simple client-side hash routing
-        (window.location.hash === '#/admin') ? React.createElement(Admin) : React.createElement(React.Fragment, null,
-          React.createElement(JokeCard, { joke, loading }),
-          React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+        React.createElement(Routes, null,
+          React.createElement(Route, { path: '/', element: React.createElement(React.Fragment, null,
+            React.createElement(JokeCard, { joke, loading }),
+            React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+          ) }),
+          React.createElement(Route, { path: '/admin', element: React.createElement(Admin) })
         )
       )
     )
