@@ -9,6 +9,7 @@ export default function App() {
   const [joke, setJoke] = useState('Appuyez sur "Nouvelle blague" pour commencer.')
   const [loading, setLoading] = useState(false)
   const [metrics, setMetrics] = useState({ likes: 0, dislikes: 0, rating: 0 })
+  const [userRating, setUserRating] = useState(0)
   const location = useLocation()
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export default function App() {
       const res = await generateJoke()
       setJoke(res.joke || 'Erreur lors de la génération')
       setMetrics({ likes: 0, dislikes: 0, rating: 0 })
+      setUserRating(0)
     } catch (e) {
       setJoke('Erreur réseau')
     } finally {
@@ -32,15 +34,19 @@ export default function App() {
     }
   }
 
-  async function handleRate(r) {
-    // optimistic UI: apply feedback immediately
+  function handleRate(r) {
     if (!joke || joke.startsWith('Appuyez') || joke.startsWith('Erreur')) return
-    try {
-      const resp = await rateJoke(joke, r)
-      setMetrics(resp.metrics || { likes: 0, dislikes: 0, rating: 0 })
-    } catch (e) {
-      // ignore
+    if (userRating === r) {
+      setUserRating(0)
+      rateJoke(joke, 0).catch(() => {})
+      return
     }
+    setUserRating(r)
+    rateJoke(joke, r).then(resp => {
+      if (resp.metrics) setMetrics(resp.metrics)
+    }).catch(() => {
+      setUserRating(0)
+    })
   }
 
   return (
@@ -56,7 +62,7 @@ export default function App() {
           React.createElement(Routes, null,
             React.createElement(Route, { path: '/', element: React.createElement(React.Fragment, null,
               React.createElement(JokeCard, { joke, loading }),
-              React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics })
+              React.createElement(Controls, { onGenerate: fetchJoke, onRate: handleRate, loading, metrics, userRating })
             ) }),
             React.createElement(Route, { path: '/admin', element: React.createElement(Admin) })
           )
