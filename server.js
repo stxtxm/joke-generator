@@ -171,13 +171,12 @@ async function callOllama(prompt) {
 // Query Ollama for installed models (returns array of model names)
 async function getAvailableModels() {
   try {
-    const res = await fetch((OLLAMA_HOST + '/api/list').replace(/\/api\/$/, '/api/list'), { method: 'GET' });
+    const res = await fetch(`${OLLAMA_HOST}/api/tags`, { method: 'GET' });
     if (!res.ok) return [];
     const json = await res.json().catch(() => null);
     if (!json) return [];
-    // Ollama's CLI 'ollama list' returns names; HTTP API may differ, attempt to extract
-    if (Array.isArray(json)) return json.map(m => m.name || m);
-    if (json.models && Array.isArray(json.models)) return json.models.map(m => m.name || m.id || m);
+    // Ollama API /api/tags returns { models: [{ name, ... }] }
+    if (json.models && Array.isArray(json.models)) return json.models.map(m => m.name || m);
     return [];
   } catch (e) {
     return [];
