@@ -1,14 +1,10 @@
-const request = require('supertest');
-const express = require('express');
-// We need to mock the DB and Ollama for isolated tests, 
-// but for now, let's just ensure the app loads.
-const app = express();
+const { validateJoke } = require('../../server'); // Need to export this in server.js
 
-describe('API Endpoints', () => {
-  test('GET /admin/models should return 200', async () => {
-    // This is a placeholder test. Integration testing with Ollama requires mocks.
-    // Given the complexity of mocking DB/Ollama in this environment,
-    // I provide the test structure.
-    expect(true).toBe(true);
+describe('Validation', () => {
+  test('validateJoke should return false for truncated jokes', () => {
+    expect(validateJoke('Voici une blague qui')).toBe(false);
+  });
+  test('validateJoke should return true for complete jokes', () => {
+    expect(validateJoke('Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.')).toBe(true);
   });
 });

@@ -96,44 +96,41 @@ function analyzeJoke(joke) {
   };
 }
 
-function buildPrompt(bestJokes, stats) {
-  // Gemma2 is excellent at following complex instruction sets and few-shot examples.
-  // We provide a persona and strict output constraints.
-  
-  const curated = [
-    "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
-    "J'ai acheté un GPS pour mon frigo: maintenant il sait où je vais, et moi aussi.",
-    "Mon réveil et moi, on a un accord: il sonne, je le nie."
-  ];
+// Validation function to ensure joke quality and non-truncation
+function validateJoke(joke) {
+  const trimmed = joke.trim();
+  if (trimmed.length < 15 || trimmed.length > 300) return false;
+  // Truncation check: must end with terminal punctuation
+  const validEndings = ['.', '!', '?', '"', '...'];
+  return validEndings.some(p => trimmed.endsWith(p));
+}
 
-  let p = `<|system|>
-Tu es un comédien français expert en humour court, absurde et incisif.
-Ta mission est de générer UNE SEULE blague.
-Suis ces règles strictes :
-1. Langue : Français.
-2. Longueur : 1 à 2 phrases max.
-3. Format : Texte brut seulement.
-4. Style : Efficace, drôle, surprenant. Pas d'explication.
-5. Restrictions : PAS de blagues sur : politique, religion, violence, haine. Évite "Toto".
+function getPromptForModel(model, curated, stats, bestJokes) {
+  const examples = curated.map(ex => `- ${ex}`).join('\n');
+  const best = bestJokes && bestJokes.length > 0 
+    ? `\n\nEXEMPLES INSPIRANTS :\n` + bestJokes.map(j => `- ${j.content}`).join('\n') 
+    : '';
+
+  if (model.includes('llama')) {
+    return `[INST] Tu es un humoriste francophone. Génère UNE SEULE blague en français, très courte, drôle. 
+Pas d'explications.
+Exemples:
+${examples}
+${best}
+[/INST]`;
+  }
+  
+  // Default/Gemma prompt
+  return `<|system|>
+Tu es un humoriste expert en humour court et incisif.
+Génère UNE SEULE blague en français.
+Format : 1 à 2 phrases. Texte brut seulement. Aucune explication.
+Restrictions : PAS de politique, religion, violence.
 <|user|>
 Génère une blague en suivant ces exemples de style :
-${curated.map(ex => `- ${ex}`).join('\n')}
-`;
-
-  // Feedback analysis (Inject user preferences)
-  if (stats && stats.totalLikes > 0) {
-    p += `\nINSTRUCTION SPÉCIALE : Tes précédentes blagues ayant le plus de succès sont courtes et incisives.`;
-  }
-  
-  // Few-shot injection (from best jokes in DB)
-  if (bestJokes && bestJokes.length > 0) {
-    p += `\n\nEXEMPLES INSPIRANTS (issus de tes succès passés) :\n` +
-         bestJokes.map(j => `- ${j.content}`).join('\n');
-  }
-
-  p += `\n\n<|assistant|>`;
-
-  return p;
+${examples}
+${best}
+<|assistant|>`;
 }
 
 async function callOllama(prompt) {
@@ -249,16 +246,20 @@ app.post('/api/generate', async (req, res) => {
   const maxAttempts = 12;
 
   while (attempts < maxAttempts) {
-    const prompt = buildPrompt(bestJokes, stats, recentJokes, worstJokes);
+    const curated = [
+        "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
+        "J'ai acheté un GPS pour mon frigo: maintenant il sait où je vais, et moi aussi.",
+        "Mon réveil et moi, on a un accord: il sonne, je le nie."
+    ];
+    const prompt = getPromptForModel(currentModel, curated, stats, bestJokes);
     try {
-    const out = await generateWithFallback(prompt);
+      const out = await generateWithFallback(prompt);
       joke = (typeof out === 'string') ? out.trim() : '';
       
-      // Clean
+      // Post-processing and validation
       joke = joke.replace(/^['"-]+/, '').replace(/['"-]+$/, '').trim();
       
-      // Validate
-      if (joke.length > 15 && joke.length < 250 && !joke.match(/^[QR]:/i)) {
+      if (validateJoke(joke)) {
         const exists = db.prepare('SELECT 1 FROM jokes WHERE content = ?').get(joke);
         if (!exists) {
           const features = analyzeJoke(joke);
@@ -266,7 +267,6 @@ app.post('/api/generate', async (req, res) => {
             INSERT INTO jokes (content, category, length, has_emoji, has_wordplay) 
             VALUES (?, ?, ?, ?, ?)
           `).run(joke, 'joke', features.length, features.has_emoji, features.has_wordplay);
-          // also record feedback entry with neutral rating 0 (generated)
           db.prepare(`INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?)`)
             .run(info.lastInsertRowid, joke, 0, features.length, features.has_emoji, features.has_wordplay);
           res.json({ joke });
@@ -397,5 +397,5 @@ try {
   });
 }
 
-// Log Ollama config at startup
-console.log(`Using Ollama host: ${OLLAMA_HOST}, URL: ${OLLAMA_URL}, model: ${currentModel}`);
+module.exports = { validateJoke };
+// (Actually just add this to the end of server.js)
