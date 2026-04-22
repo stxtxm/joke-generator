@@ -58,7 +58,7 @@ const PORT = process.env.PORT || 3000;
 const OLLAMA_HOST = (process.env.OLLAMA_HOST || 'http://ollama:11434').replace(/\/$/, '');
 const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
 // Prefer environment variable (set in docker-compose). Default to llama3:2b
-let currentModel = process.env.OLLAMA_MODEL || 'llama3:2b';
+let currentModel = process.env.OLLAMA_MODEL || 'gemma2:2b';
 
 app.use(cors());
 app.use(express.json());
@@ -105,31 +105,37 @@ function validateJoke(joke) {
   return validEndings.some(p => trimmed.endsWith(p));
 }
 
-function getPromptForModel(model, curated, stats, bestJokes) {
-  const examples = curated.map(ex => `- ${ex}`).join('\n');
-  const best = bestJokes && bestJokes.length > 0 
-    ? `\n\nEXEMPLES INSPIRANTS :\n` + bestJokes.map(j => `- ${j.content}`).join('\n') 
-    : '';
+function getPromptForModel(model, bestJokes, recentJokes, worstJokes, stats) {
+  const best = bestJokes.map(j => `- ${j.content}`).join('\n');
+  const recent = recentJokes.map(j => `- ${j.content}`).join('\n');
+  const worst = worstJokes.map(j => `- ${j.content}`).join('\n');
 
-  if (model.includes('llama')) {
-    return `[INST] Tu es un humoriste francophone. Génère UNE SEULE blague en français, très courte, drôle. 
-Pas d'explications.
-Exemples:
-${examples}
-${best}
-[/INST]`;
+  let styleProfile = "Humour varié, court et incisif.";
+  if (stats && stats.totalLikes > 5) {
+    styleProfile = `Basé sur les succès : ${stats.wordplayRate > 0.5 ? 'privilégie les jeux de mots, ' : 'privilégie l\'observation directe, '}${stats.emojiRate > 0.3 ? 'utilise souvent des emojis, ' : 'sobre sans emojis, '}${stats.avgLength < 100 ? 'très concis.' : 'plus détaillé.'}`;
   }
-  
-  // Default/Gemma prompt
+
   return `<|system|>
-Tu es un humoriste expert en humour court et incisif.
-Génère UNE SEULE blague en français.
-Format : 1 à 2 phrases. Texte brut seulement. Aucune explication.
-Restrictions : PAS de politique, religion, violence.
-<|user|>
-Génère une blague en suivant ces exemples de style :
-${examples}
+Tu es un humoriste expert en humour francophone. Ton objectif est de générer UNE SEULE blague unique, drôle et originale.
+
+1. PROFIL DE STYLE (Appris par le feedback) :
+${styleProfile}
+
+2. INSPIRATION (Très apprécié) :
 ${best}
+
+3. ÉVITEMENT (Ne PAS répéter) :
+${recent}
+${worst}
+
+4. CONTRAINTES STRICTES :
+- 1 à 2 phrases max.
+- Texte brut seulement.
+- Aucune explication.
+- PAS de politique, religion, violence.
+- Sujet obligatoirement différent des exemples de rejet.
+<|user|>
+Génère une nouvelle blague unique en respectant le style appris et en changeant de sujet :
 <|assistant|>`;
 }
 
@@ -246,12 +252,7 @@ app.post('/api/generate', async (req, res) => {
   const maxAttempts = 12;
 
   while (attempts < maxAttempts) {
-    const curated = [
-        "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
-        "J'ai acheté un GPS pour mon frigo: maintenant il sait où je vais, et moi aussi.",
-        "Mon réveil et moi, on a un accord: il sonne, je le nie."
-    ];
-    const prompt = getPromptForModel(currentModel, curated, stats, bestJokes);
+    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes, worstJokes, stats);
     try {
       const out = await generateWithFallback(prompt);
       joke = (typeof out === 'string') ? out.trim() : '';
@@ -383,19 +384,21 @@ app.post('/admin/reset-db', (req, res) => {
   }
 });
 
-const certPath = '/tmp/cert.pem';
-const keyPath = '/tmp/key.pem';
+if (require.main === module) {
+    const certPath = '/tmp/cert.pem';
+    const keyPath = '/tmp/key.pem';
 
-try {
-  const options = { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
-  https.createServer(options, app).listen(PORT, '0.0.0.0', () => {
-    console.log(`HTTPS server listening on 0.0.0.0:${PORT}`);
-  });
-} catch (e) {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`HTTP server listening on 0.0.0.0:${PORT}`);
-  });
+    try {
+      const options = { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
+      https.createServer(options, app).listen(PORT, '0.0.0.0', () => {
+        console.log(`HTTPS server listening on 0.0.0.0:${PORT}`);
+      });
+    } catch (e) {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`HTTP server listening on 0.0.0.0:${PORT}`);
+      });
+    }
 }
 
-module.exports = { validateJoke };
+module.exports = { validateJoke, getPromptForModel };
 // (Actually just add this to the end of server.js)
