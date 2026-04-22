@@ -2,118 +2,12 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Générateur de Blagues</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😂</text></svg>">
-  <style>
-    :root{
-      --bg:#0b1020; --card:#0f1724; --muted:#9ca3af; --accent:#8b5cf6; --white:#f8fafc;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;padding:16px;background:linear-gradient(180deg,var(--bg) 0%, #071129 100%);color:var(--white);font-family:Inter,system-ui,Arial;display:flex;align-items:center;justify-content:center;
-    }
-    .wrap{width:100%;max-width:720px}
-    header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-    .logo{font-size:40px}
-    h1{font-size:20px;margin:0}
-    p.subtitle{margin:0;color:var(--muted);font-size:13px}
-
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-    select,input[type="text"]{flex:1;min-width:140px;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--card);color:var(--white)}
-    button.btn{background:linear-gradient(90deg,var(--accent),#a78bfa);border:none;color:white;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
-
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:14px;border:1px solid rgba(255,255,255,0.03);min-height:140px;display:flex;align-items:center;justify-content:center}
-    .joke{font-size:17px;line-height:1.6;text-align:center}
-    .meta{display:flex;justify-content:space-between;margin-top:10px;color:var(--muted);font-size:12px}
-
-    .spinner{width:36px;height:36px;border-radius:50%;border:4px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin .9s linear infinite;margin-bottom:8px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-
-    @media (max-width:520px){
-      .controls{flex-direction:column}
-      button.btn{width:100%}
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blague du jour — React</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div class="logo">😂</div>
-      <div>
-        <h1>Générateur de Blagues</h1>
-        <p class="subtitle">Locale — rapide — adapté mobile</p>
-      </div>
-    </header>
-
-    <div class="controls">
-      <select id="style" aria-label="Style">
-        <option value="one-liner">One-liner</option>
-        <option value="dad-joke">Dad joke</option>
-        <option value="pun">Pun</option>
-      </select>
-
-      <input id="topic" type="text" placeholder="Sujet (optionnel)" aria-label="Sujet" />
-
-      <button id="gen" class="btn">Nouvelle blague</button>
-    </div>
-
-    <div class="card">
-      <div id="out" class="joke">
-        <div style="text-align:center;color:var(--muted)">Appuie sur "Nouvelle blague" pour commencer</div>
-      </div>
-    </div>
-
-    <div class="meta">
-      <div id="model">Model: —</div>
-      <div id="status">Status: ready</div>
-    </div>
-  </div>
-
-  <script>
-    const gen = document.getElementById('gen');
-    const out = document.getElementById('out');
-    const styleEl = document.getElementById('style');
-    const topicEl = document.getElementById('topic');
-    const modelEl = document.getElementById('model');
-    const statusEl = document.getElementById('status');
-
-    function setLoading(yes){
-      out.innerHTML = yes ? '<div style="display:flex;flex-direction:column;align-items:center"><div class="spinner"></div><div style="color:var(--muted)">Génération...</div></div>' : '';
-      statusEl.textContent = yes ? 'generating' : 'ready';
-    }
-
-    async function health(){
-      try{
-        const r = await fetch('/api/health');
-        const j = await r.json();
-        modelEl.textContent = 'Model: ' + (j.model||'inconnu');
-      }catch(e){
-        modelEl.textContent = 'Model: inaccessible';
-      }
-    }
-
-    async function generate(){
-      setLoading(true);
-      const payload = { style: styleEl.value, topic: topicEl.value };
-      try{
-        const r = await fetch('/api/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-        const j = await r.json();
-        if(j.joke){
-          out.innerHTML = '<div>' + escapeHtml(j.joke).replace(/\n/g,'<br>') + '</div>';
-        }else{
-          out.innerHTML = '<div style="color:#fb7185">Erreur: aucune réponse</div>';
-        }
-      }catch(e){
-        out.innerHTML = '<div style="color:#fb7185">Erreur: ' + escapeHtml(e.toString()) + '</div>';
-      }finally{ setLoading(false); }
-    }
-
-    function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-    gen.addEventListener('click', generate);
-    health();
-  </script>
+  <div id="root"></div>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

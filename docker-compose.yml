@@ -17,8 +17,11 @@ services:
       - "3000:3000"
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=qwen2.5:3b-lowram
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma2:2b}
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
+    volumes:
+      - .:/app
+      - /app/node_modules
     depends_on:
       ollama:
         condition: service_started
