@@ -26,7 +26,6 @@ services:
     # Keep a named volume for node_modules if you need to persist it locally during development.
     volumes:
       - /app/node_modules
-      - ./scripts:/app/scripts
     depends_on:
       ollama:
         condition: service_started

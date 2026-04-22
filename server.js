@@ -374,11 +374,15 @@ app.post('/admin/set-model', (req, res) => {
 
 app.post('/admin/reset-db', (req, res) => {
   try {
-    db.close();
-    if (fs.existsSync('jokes.db')) fs.unlinkSync('jokes.db');
+    console.log("Resetting DB...");
+    if (db) db.close();
+    const dbPath = path.join(__dirname, 'jokes.db');
+    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
     initDb();
+    console.log("DB reset successfully.");
     res.json({ ok: true, message: 'Database reset successfully' });
   } catch (e) {
+    console.error("Reset failed:", e);
     res.status(500).json({ error: 'Reset failed: ' + e.message });
   }
 });
