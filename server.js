@@ -6,9 +6,51 @@ const https = require('https');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const db = new Database('jokes.db');
-const { runMigrations } = require('./lib/migrations');
-runMigrations(db);
+let db;
+function initDb() {
+  db = new Database('jokes.db');
+  db.exec(`
+CREATE TABLE IF NOT EXISTS jokes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content TEXT UNIQUE,
+  category TEXT,
+  rating INTEGER DEFAULT 0,
+  likes INTEGER DEFAULT 0,
+  dislikes INTEGER DEFAULT 0,
+  length INTEGER DEFAULT 0,
+  has_emoji INTEGER DEFAULT 0,
+  has_wordplay INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+`);
+
+  db.exec(`
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  joke_id INTEGER,
+  content TEXT,
+  rating INTEGER,
+  length INTEGER,
+  has_emoji INTEGER,
+  has_wordplay INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+`);
+  
+  db.exec(`
+CREATE TABLE IF NOT EXISTS curated_examples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content TEXT UNIQUE,
+  approved INTEGER DEFAULT 0,
+  notes TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+`);
+  
+  const { runMigrations } = require('./lib/migrations');
+  runMigrations(db);
+}
+initDb();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -462,6 +504,17 @@ app.post('/admin/trigger-train', (req, res) => {
     res.json({ ok: true, pid, filename, exportPath, outDir });
   } catch (e) {
     res.status(500).json({ error: e && e.message });
+  }
+});
+
+app.post('/admin/reset-db', (req, res) => {
+  try {
+    db.close();
+    if (fs.existsSync('jokes.db')) fs.unlinkSync('jokes.db');
+    initDb();
+    res.json({ ok: true, message: 'Database reset successfully' });
+  } catch (e) {
+    res.status(500).json({ error: 'Reset failed: ' + e.message });
   }
 });
 

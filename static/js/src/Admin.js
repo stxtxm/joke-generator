@@ -63,9 +63,24 @@ export default function Admin() {
     setExportsText(JSON.stringify(j, null, 2))
   }
 
+  async function resetDb() {
+    if (!confirm('Are you sure you want to reset the database? This cannot be undone.')) return
+    const r = await fetch('/admin/reset-db', { method: 'POST' })
+    const j = await r.json()
+    if (j.ok) {
+        alert('Database reset!')
+        load()
+    } else {
+        alert('Reset failed: ' + j.error)
+    }
+  }
+
   return (
     React.createElement('div', { className: 'admin' },
       React.createElement('h2', null, 'Curated Examples'),
+      React.createElement('div', { className: 'box' },
+        React.createElement('button', { onClick: resetDb, style: { background: '#ef4444' } }, 'Reset Database')
+      ),
       React.createElement('div', { className: 'box' },
         React.createElement('label', null, 'Example text'),
         React.createElement('textarea', { rows: 3, value: text, onChange: e => setText(e.target.value) }),
