@@ -12,8 +12,7 @@ RUN npm ci
 # Copy sources and run build
 COPY . .
 RUN npm run build && \
-    cp -v *.svg dist/ || true && \
-    cp -v admin.html dist/ || true
+    cp -v *.svg dist/ || true
 
 ### Production stage: use Debian for better compatibility with native modules
 FROM node:22-bookworm-slim AS prod
@@ -26,16 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 COPY package.json package-lock.json* ./
 RUN npm ci --production
 
-# Copy necessary files
+# Copy server and built frontend from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/*.svg ./
 COPY --from=builder /app/jokes.db ./
 COPY --from=builder /app/lib ./lib
-COPY --from=builder /app/admin.html ./admin.html
-COPY --from=builder /app/exports ./exports
 
-# Generate cert
+# Generate a self-signed cert used by server.js when no certs are provided
 RUN mkdir -p /tmp && \
     openssl req -x509 -newkey rsa:2048 -keyout /tmp/key.pem -out /tmp/cert.pem -days 365 -nodes -subj "/CN=localhost" 2>/dev/null || true
 
