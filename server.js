@@ -53,50 +53,40 @@ function analyzeJoke(joke) {
 }
 
 function buildPrompt(bestJokes, stats, recentJokes, worstJokes) {
-  // Curated few-shot examples to show desired tone and length
+  // Exemples de haute qualité pour le few-shot
   const curated = [
     "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
     "J'ai acheté un GPS pour mon frigo: maintenant il sait où je vais, et moi aussi.",
     "Mon réveil et moi, on a un accord: il sonne, je le nie."
   ];
 
-  let p = 'Tu es un humoriste professionnel francophone. Objectif: produire UNE SEULE blague en FRANÇAIS, courte, originale et vraiment drôle.';
-  p += `\nFormat attendu: 1 à 2 phrases maximum. Pas d'introduction, pas d'explication, pas de questions rhétoriques qui attendent une réponse; réponds uniquement par la blague.`;
+  let p = `Tu es un humoriste francophone talentueux. 
+Génère UNE SEULE blague en FRANÇAIS, courte, originale et drôle.
 
-  // Preferences statistiques (aider le model à s'aligner)
+FORMAT STRICT:
+- 1 à 2 phrases maximum.
+- Texte brut uniquement.
+- AUCUNE introduction, AUCUNE explication, AUCUNE question rhétorique.
+
+EXEMPLES DE STYLE ATTENDU:
+${curated.map(ex => `- ${ex}`).join('\n')}
+`;
+
+  // Contexte et préférences
   if (stats && stats.totalLikes > 0) {
-    p += `\n\nContexte utilisateur: ${stats.totalLikes} blagues aimées. Longueur moyenne: ${Math.round(stats.avgLength || 0)} caractères.`;
-    if ((stats.emojiRate || 0) > 0.25) p += ` Les utilisateurs aiment les emojis.`;
-    if ((stats.wordplayRate || 0) > 0.15) p += ` Les jeux de mots sont appréciés.`;
+    p += `\nCONSEILS DE STYLE: Les utilisateurs apprécient la brièveté.`;
+    if ((stats.emojiRate || 0) > 0.25) p += ` Utilise des emojis avec parcimonie.`;
   }
 
-  // Provide curated examples to set the tone
-  p += `\n\nExemples (ton concis, punchline claire):`;
-  curated.forEach(ex => p += `\n- ${ex}`);
+  // Restrictions
+  p += `\n\nRESTRICTIONS:
+- Sujets INTERDITS: escargot, limace, politique, religion, violence, haine.
+- Évite les blagues de "Toto" ou les devinettes trop classiques.
+- Pas d'adresse directe à l'utilisateur.
+- Pas de répétition de thèmes récents.
 
-  // Add top user-liked examples (few-shot) if any
-  if (bestJokes && bestJokes.length > 0) {
-    p += `\n\nExemples venant des blagues appréciées par les utilisateurs (s'inspirer du style, pas copier):`;
-    bestJokes.forEach(j => {
-      const tags = [];
-      if (j.has_emoji) tags.push('emoji');
-      if (j.has_wordplay) tags.push('wordplay');
-      p += `\n- ${j.content} ${tags.length ? '(' + tags.join(', ') + ')' : ''}`;
-    });
-  }
+Réponds uniquement par la blague.`;
 
-  // Recent jokes to avoid repeating topics (helps stop the 'escargot' loop)
-  if (recentJokes && recentJokes.length > 0) {
-    p += `\n\nEvite absolument de réutiliser les mêmes sujets/termes que dans les blagues récentes suivantes:`;
-    recentJokes.forEach(r => p += `\n- ${r.content}`);
-  }
-
-  // Explicit bans / constraints to fix observed failure modes
-  p += `\n\nINTERDIT: ne génère AUCUNE blague sur les sujets: escargot, limace, coquille, animaux, bébés, politique, religion, violence, haine.`;
-  p += `\nCONTRAINTES: une blague courte (<=140 caractères de préférence), pas de répétition de sujet, pas d'adresse à la 2e personne qui fait référence au client, pas de références à des blagues précédentes.`;
-  p += `\nSi tu dois faire un jeu de mots, qu'il soit précis et court. Si tu veux utiliser un emoji, il doit être pertinent et discret.`;
-
-  p += `\n\nRéponds uniquement par la blague (texte brut). FIN.`;
   return p;
 }
 
