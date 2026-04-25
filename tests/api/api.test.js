@@ -16,7 +16,7 @@ describe('Prompt Generation', () => {
     const worstJokes = [{ content: 'Worst joke 1' }];
     const stats = { totalLikes: 6, wordplayRate: 0.6, emojiRate: 0.4, avgLength: 50 };
     
-    const prompt = getPromptForModel('gemma2:2b', bestJokes, recentJokes, worstJokes, stats);
+    const prompt = getPromptForModel('qwen:1.8b', bestJokes, recentJokes, worstJokes, stats);
     
     expect(prompt).toContain('Best joke 1');
     expect(prompt).toContain('Recent joke 1');

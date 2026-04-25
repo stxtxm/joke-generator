@@ -45,7 +45,7 @@ Variables d'environnement (optionnel) dans `.env` :
 
 ```env
 OLLAMA_HOST=http://ollama:11434
-OLLAMA_MODEL=gemma2:2b
+OLLAMA_MODEL=qwen:1.8b
 EXPORT_INTERVAL_MIN=60
 ```
 
@@ -136,5 +136,5 @@ docker-compose down
 ## Notes
 
 - Les endpoints `/admin/*` ne sont pas protégés. À sécuriser enproduction.
-- Le modèle par défaut est `gemma2:2b`. Configurable via `OLLAMA_MODEL`.
+- Le modèle par défaut est `qwen:1.8b`. Configurable via `OLLAMA_MODEL`.
 - Exports écrits dans `exports/` toutes les 60 min (désactivable avec `EXPORT_INTERVAL_MIN=0`).

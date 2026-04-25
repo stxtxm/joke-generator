@@ -1,0 +1,33 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python ML dependencies
+# Use default PyPI for transformers, peft, datasets, accelerate
+# Use extra-index-url for torch CPU
+RUN pip install --no-cache-dir \
+    transformers \
+    peft \
+    datasets \
+    accelerate \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+WORKDIR /app
+
+# Copy the training script and dataset into the container
+COPY scripts/train_lora.py .
+COPY dataset.jsonl .
+
+# Set environment variables for NAS paths
+ENV NAS_PATH=/mnt/nas_hdd/joke-training
+ENV HF_HOME=${NAS_PATH}/huggingface_cache
+ENV TRANSFORMERS_CACHE=${NAS_PATH}/huggingface_cache
+
+CMD ["python3", "train_lora.py"]
