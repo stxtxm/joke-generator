@@ -1,12 +1,20 @@
 # Générateur de Blagues
 
-Application web qui génère des blagues aléatoires en français en utilisant Ollama (LLM local) avec un frontend React moderne.
+Application web qui génère des blagues aléatoires en français en utilisant l'API Google Gemini (par défaut) ou Ollama (LLM local), avec un frontend React moderne.
 
-## Prérequis
+## Fonctionnalités
 
-- Docker
-- Docker Compose
-- Node.js 18+ (développement local)
+- **Génération via Gemini** : Utilise désormais `gemini-2.5-flash-lite` pour une génération rapide et efficace.
+- **Support Ollama** : Possibilité de basculer vers des modèles LLM locaux via le panneau d'administration.
+- **Interface Admin** : Panneau de contrôle permettant de gérer les modèles, réinitialiser la base de données et gérer des exemples de blagues.
+
+## Configuration
+
+Assurez-vous que la variable d'environnement `GEMINI_API_KEY` est correctement définie.
+
+## Administration
+
+Accédez au panneau `/admin` pour basculer entre les modèles disponibles (Ollama ou Gemini) et gérer la base de données.
 - Ollama (inclus dans Docker)
 
 ## Démarrage rapide

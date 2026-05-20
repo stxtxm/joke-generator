@@ -1,11 +1,12 @@
 // Express-based server for Joke Generator
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
+const { spawn } = require('child_process');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Database = require('better-sqlite3');
-const request = require('request'); // Using request library for Ollama API calls
-
 let db;
 function initDb() {
   db = new Database('jokes.db');
@@ -55,8 +56,15 @@ initDb();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// NEW: Generation mode - Default to gemini as requested
+let GENERATION_MODE = process.env.GENERATION_MODE || 'gemini';
+
 const OLLAMA_HOST = (process.env.OLLAMA_HOST || 'http://ollama:11434').replace(/\/$/, '');
 const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
+
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
 // Prefer environment variable (set in docker-compose). Default to qwen:1.8b
 let currentModel = process.env.OLLAMA_MODEL || 'qwen:1.8b';
@@ -101,86 +109,93 @@ function analyzeJoke(joke) {
 function validateJoke(joke) {
   const trimmed = joke.trim();
   // Length check
-  if (trimmed.length < 20 || trimmed.length > 180) return false;
+  if (trimmed.length < 20 || trimmed.length > 180) {
+    console.log(`[DEBUG] Joke failed length check: ${trimmed.length} chars`);
+    return false;
+  }
   // Must end with terminal punctuation
   const validEndings = ['.', '!', '?', '"', '...'];
-  if (!validEndings.some(p => trimmed.endsWith(p))) return false;
+  if (!validEndings.some(p => trimmed.endsWith(p))) {
+    console.log(`[DEBUG] Joke failed ending check: "${trimmed.slice(-5)}"`);
+    return false;
+  }
   // Twist detection heuristics
-  return hasTwist(trimmed);
+  const result = hasTwist(trimmed);
+  if (!result) console.log(`[DEBUG] Joke failed twist detection`);
+  return result;
 }
 
 // Twist detection: contradiction logique, chute inattendue, changement de sens
 function hasTwist(joke) {
   const lower = joke.toLowerCase();
-  // Must have a question mark (setup + punchline structure)
-  if (!lower.includes('?')) return false;
-  // Split into setup and punchline
-  const parts = joke.split('?');
-  if (parts.length < 2) return false;
-  const setup = parts[0].toLowerCase();
-  const punchline = parts.slice(1).join('?').trim().toLowerCase();
-  if (punchline.length < 10) return false;
-  // Heuristics for twist:
-  // 1. Contradiction keywords
-  const contradictionWords = ['mais', 'pourtant', 'cependant', 'alors que', 'sauf que'];
-  if (contradictionWords.some(w => punchline.includes(w))) return true;
-  // 2. Unexpected words (absurde/cynique)
-  const twistWords = ['parce que', 'simplement parce', 'en fait', 'finalement'];
-  if (twistWords.some(w => punchline.includes(w))) return true;
-  // 3. Punchline differs semantically from setup (simple: check keyword overlap is low)
-  const setupWords = new Set(setup.split(/\W+/).filter(w => w.length > 3));
-  const punchWords = new Set(punchline.split(/\W+/).filter(w => w.length > 3));
-  let common = 0;
-  for (const w of punchWords) { if (setupWords.has(w)) common++; }
-  // If punchline shares too many words with setup, it's probably not a twist
-  if (punchWords.size > 0 && common / punchWords.size > 0.6) return false;
-  // 4. Check for absurde/cynique patterns
+  
+  // Format 1: Question/Réponse
+  if (lower.includes('?')) {
+    const parts = joke.split('?');
+    if (parts.length >= 2) {
+      const setup = parts[0].toLowerCase();
+      const punchline = parts.slice(1).join('?').trim().toLowerCase();
+      if (punchline.length >= 10) return true;
+    }
+  }
+  
+  // Format 2: Assertion avec chute (virgule, deux points, ou point)
+  const separators = [':', '...', '. '];
+  for (const sep of separators) {
+    if (joke.includes(sep)) {
+      const parts = joke.split(sep);
+      const punchline = parts[parts.length - 1].trim();
+      if (punchline.length >= 15 && parts[0].length >= 15) return true;
+    }
+  }
+
+  // Fallback: si la blague est assez longue et contient des mots clés cyniques
   const cynicalPatterns = [
-    /parce qu(e|\')/,
-    /personne ne/,
-    /tout simplement/,
-    /la vérité/,
-    /plus simple que/,
-    /fuir|fuyez/
+    /parce qu(e|\')/, /personne ne/, /tout simplement/, /la vérité/,
+    /plus simple que/, /fuir|fuyez/, /mort s'ensuive/, /produit de luxe/,
+    /c'est juste/, /c'est comme/
   ];
-  if (cynicalPatterns.some(p => punchline.match(p))) return true;
-  // If we reach here, check if there's a clear answer after the question
-  return punchline.length > 15;
+  if (joke.length > 50 && cynicalPatterns.some(p => lower.match(p))) return true;
+
+  return false;
 }
 
-function getPromptForModel(model, bestJokes, recentJokes, worstJokes) {
+function getPromptForModel(model, bestJokes, recentJokes, worstJokes, stats) {
   const best = bestJokes.map(j => `- ${j.content}`).join('\n');
   const recent = recentJokes.map(j => `- ${j.content}`).join('\n');
   const worst = worstJokes.map(j => `- ${j.content}`).join('\n');
 
-  return `Tu es un humoriste français avec un humour noir, absurde et cynique.
+  // Simple progress: the model can adapt based on these stats
+  const advice = [];
+  if (stats.wordplayRate > 0.5) advice.push('privilégie les jeux de mots');
+  if (stats.emojiRate > 0.5) advice.push('utilise souvent des emojis');
+  if (stats.avgLength < 60) advice.push('très concis');
 
-OBJECTIF :
-Faire rire, surprendre.
+  return `Tu es un humoriste français sarcastique et inventif.
 
-STRUCTURE :
-* 1 setup
-* 1 punchline
+RÈGLES STRICTES :
+1. Génère UNE SEULE blague courte (max 150 caractères).
+2. DIVERSITÉ : N'utilise PAS toujours le format "Pourquoi...". Varie avec des affirmations, des définitions absurdes, des observations cyniques, ou des détournements de situations quotidiennes.
+3. STRUCTURE : Chute inattendue, cynique ou absurde.
+4. PAS d'introduction, PAS de métadonnées.
+5. CONSEILS (basés sur tes succès passés) : ${advice.join(', ')}.
 
-RÈGLES :
-* 1 ou 2 phrases max
-* pas d'explication
-* pas de morale
-* punchline imprévisible
+EXEMPLES À SUIVRE (Style attendu) :
+- La vie est une maladie sexuellement transmissible mortelle à 100%.
+- J'ai décidé de vendre ma maison pour acheter un van. Maintenant, je vis dans un van garé devant mon ancienne maison.
+- Le mariage est juste un contrat qui autorise une personne à décider quelle température il fait dans la chambre.
+- Si le travail c'est la santé, donnez le mien à un malade.
 
-MAUVAIS :
-* blagues plates
-* logique évidente
-
-EXEMPLES DRÔLES :
-${best}
-
-À ÉVITER :
-${worst}
+EXEMPLES RÉCENTS (À NE PAS COPIER) :
 ${recent}
 
-CONSIGNE :
-Génère UNE blague avec un vrai twist.`;
+INSPIRATIONS (Les meilleures) :
+${best}
+
+À ÉVITER (Les pires) :
+${worst}
+
+Génère maintenant :`;
 }
 
 async function callOllama(prompt) {
@@ -215,6 +230,24 @@ async function callOllama(prompt) {
   }
 }
 
+async function callGemini(prompt, retries = 3, delay = 5000) {
+  try {
+    const result = await geminiModel.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
+  } catch (e) {
+    if (e.status === 429 && retries > 0) {
+      console.warn(`Gemini 429 error, retrying in ${delay}ms... (${retries} attempts left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callGemini(prompt, retries - 1, delay * 2);
+    }
+    console.error('--- GENERATION ERROR START ---');
+    console.error('Error Details:', e);
+    console.error('--- GENERATION ERROR END ---');
+    throw e;
+  }
+}
+
 app.post('/api/generate', async (req, res) => {
   // Best jokes: likes >= 3 AND dislikes = 0
   const bestJokes = db.prepare(`
@@ -245,10 +278,32 @@ app.post('/api/generate', async (req, res) => {
   const maxAttempts = 3;
 
   while (attempts < maxAttempts) {
-    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes.slice(0, 5), worstJokes);
+    // Collect stats to help the model learn
+    const stats = db.prepare(`
+        SELECT 
+            AVG(has_wordplay) as wordplayRate, 
+            AVG(has_emoji) as emojiRate, 
+            AVG(length) as avgLength
+        FROM jokes
+        WHERE likes > dislikes
+    `).get() || { wordplayRate: 0, emojiRate: 0, avgLength: 100 };
+
+    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes.slice(0, 5), worstJokes, stats);
     try {
-      const out = await callOllama(prompt);
+      let out;
+      if (GENERATION_MODE === 'gemini') {
+          out = await callGemini(prompt);
+      } else {
+          out = await callOllama(prompt);
+      }
       joke = (typeof out === 'string') ? out.trim() : '';
+      console.log(`[DEBUG] Raw joke from ${GENERATION_MODE}: "${joke}"`);
+
+      if (!joke) {
+        console.log(`[DEBUG] Empty joke from ${GENERATION_MODE}, attempt ${attempts + 1}`);
+        attempts++;
+        continue;
+      }
 
       // Post-processing
       joke = joke.replace(/^['"-]+/, '').replace(/['"-]+$/, '').trim();
@@ -261,6 +316,7 @@ app.post('/api/generate', async (req, res) => {
       });
 
       if (isDuplicate) {
+        console.log(`[DEBUG] Duplicate joke, attempt ${attempts + 1}`);
         attempts++;
         continue;
       }
@@ -281,9 +337,11 @@ app.post('/api/generate', async (req, res) => {
       }
       attempts++;
     } catch (e) {
-      console.error('Gen error:', e.message);
+      console.error('--- GENERATION ERROR START ---');
+      console.error('Error Details:', e);
+      console.error('--- GENERATION ERROR END ---');
       if (attempts === maxAttempts - 1) {
-        res.status(500).json({ error: 'Erreur generation' });
+        res.status(500).json({ error: 'Erreur generation: ' + e.message });
         return;
       }
       attempts++;
@@ -330,18 +388,45 @@ app.get('/api/joke/metrics', (req, res) => {
     res.json(row);
 });
 
+// --- Admin: Curated Examples ---
+app.get('/admin/curated', (req, res) => {
+    const examples = db.prepare('SELECT * FROM curated_examples ORDER BY id DESC').all();
+    res.json(examples);
+});
+
+app.post('/admin/curated', (req, res) => {
+    const { content, approved, notes } = req.body;
+    db.prepare('INSERT INTO curated_examples (content, approved, notes) VALUES (?, ?, ?)').run(content, approved, notes);
+    res.json({ ok: true });
+});
+
+app.delete('/admin/curated/:id', (req, res) => {
+    db.prepare('DELETE FROM curated_examples WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+});
+
 // --- Admin: Model management ---
+const { getAvailableModels } = require('./lib/models');
+const { runMigrations } = require('./lib/migrations');
+// ...
 app.get('/admin/models', async (req, res) => {
   const models = await getAvailableModels();
-  res.json({ models, current: currentModel });
+  res.json({ models, current: currentModel, mode: GENERATION_MODE });
 });
 
 app.post('/admin/set-model', (req, res) => {
   const { model } = req.body;
   if (!model) return res.status(400).send();
-  currentModel = model;
-  console.log(`Model switched to: ${currentModel}`);
-  res.json({ ok: true, current: currentModel });
+  
+  if (model === 'gemini-flash-latest') {
+    GENERATION_MODE = 'gemini';
+  } else {
+    GENERATION_MODE = 'ollama';
+    currentModel = model;
+  }
+  
+  console.log(`Model switched to: ${model}, Mode: ${GENERATION_MODE}`);
+  res.json({ ok: true, current: model, mode: GENERATION_MODE });
 });
 
 app.post('/admin/reset-db', (req, res) => {

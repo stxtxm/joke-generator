@@ -6,7 +6,7 @@ export default function Admin() {
   const [notes, setNotes] = useState('')
   const [approved, setApproved] = useState(false)
   const [exportsText, setExportsText] = useState('')
-  const [models, setModels] = useState({ list: [], current: '' })
+  const [models, setModels] = useState({ list: [], current: '', mode: '' })
 
   async function load() {
     try {
@@ -16,7 +16,9 @@ export default function Admin() {
 
       const mr = await fetch('/admin/models')
       const mj = await mr.json()
-      setModels({ list: mj.models, current: mj.current })
+      // If mode is gemini, the active selection should be 'gemini-2.5-flash-lite'
+      const active = mj.mode === 'gemini' ? 'gemini-2.5-flash-lite' : mj.current
+      setModels({ list: mj.models, current: active })
     } catch (e) {
       console.error('Admin load failed', e)
     }

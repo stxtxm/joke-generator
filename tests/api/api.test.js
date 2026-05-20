@@ -14,7 +14,7 @@ describe('Prompt Generation', () => {
     const bestJokes = [{ content: 'Best joke 1' }];
     const recentJokes = [{ content: 'Recent joke 1' }];
     const worstJokes = [{ content: 'Worst joke 1' }];
-    const stats = { totalLikes: 6, wordplayRate: 0.6, emojiRate: 0.4, avgLength: 50 };
+    const stats = { wordplayRate: 0.6, emojiRate: 0.6, avgLength: 50 };
     
     const prompt = getPromptForModel('qwen:1.8b', bestJokes, recentJokes, worstJokes, stats);
     

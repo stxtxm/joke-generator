@@ -20,6 +20,8 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen:1.8b}
+      - GENERATION_MODE=gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
       - EXPORT_PATH=${EXPORT_PATH:-}
       - OUTDIR=${OUTDIR:-}

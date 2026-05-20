@@ -20,7 +20,7 @@ WORKDIR /app
 
 # Install runtime dependencies (minimal)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssl && \
+    apt-get install -y --no-install-recommends openssl python3 python3-pip python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
 # Install production dependencies only
@@ -32,6 +32,13 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/*.svg ./
 COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/package.json ./package.json
+
+# Setup venv for python
+RUN python3 -m venv /app/venv && \
+    /app/venv/bin/pip install --upgrade pip && \
+    /app/venv/bin/pip install google-generativeai
 
 # Generate a self-signed cert used by server.js when no certs are provided
 RUN mkdir -p /tmp && \
