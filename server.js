@@ -74,11 +74,86 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+// ------ Humor styles ------
+const HUMOR_STYLES = [
+  {
+    id: 'dark',
+    label: 'Humour noir',
+    desc: 'cynique, mordant, décalé. Thèmes : désespoir, solitude, échec, absurdité du quotidien.',
+    temperature: 0.9
+  },
+  {
+    id: 'absurd',
+    label: 'Absurde',
+    desc: 'surréaliste, logique tordue, situations impossibles. Proche de Pierre Desproges.',
+    temperature: 0.95
+  },
+  {
+    id: 'observational',
+    label: 'Observational',
+    desc: 'ironie du quotidien, contradictions sociales. Proche de Raymond Devos.',
+    temperature: 0.8
+  },
+  {
+    id: 'cynical',
+    label: 'Cynique',
+    desc: 'pessimiste, lucide, désabusé mais drôle. Moquerie des travers humains.',
+    temperature: 0.85
+  },
+  {
+    id: 'wordplay',
+    label: 'Jeux de mots',
+    desc: 'calembours, doubles sens, paronomases, contrepèteries légères.',
+    temperature: 0.75
+  }
+];
+
+let styleIndex = 0;
+
+function pickStyle() {
+  const bestStyle = db.prepare(`
+    SELECT style FROM prompt_styles
+    WHERE uses >= 2
+    ORDER BY (CAST(likes AS REAL) / MAX(uses, 1)) DESC, total_rating DESC
+    LIMIT 1
+  `).get();
+
+  if (bestStyle && Math.random() < 0.6) {
+    const found = HUMOR_STYLES.find(s => s.id === bestStyle.style);
+    if (found) return found;
+  }
+
+  const style = HUMOR_STYLES[styleIndex % HUMOR_STYLES.length];
+  styleIndex++;
+  return style;
+}
+
+function recordStyleUsed(style) {
+  db.prepare(`
+    INSERT INTO prompt_styles (style, uses, likes, dislikes, total_rating)
+    VALUES (?, 1, 0, 0, 0)
+    ON CONFLICT(style) DO UPDATE SET uses = uses + 1, last_used = CURRENT_TIMESTAMP
+  `).run(style);
+}
+
+function recordStyleFeedback(style, rating) {
+  const likeInc = rating > 0 ? 1 : 0;
+  const dislikeInc = rating < 0 ? 1 : 0;
+  db.prepare(`
+    UPDATE prompt_styles SET
+      likes = likes + ?,
+      dislikes = dislikes + ?,
+      total_rating = total_rating + ?
+    WHERE style = ?
+  `).run(likeInc, dislikeInc, rating, style);
+}
+
+// ------ Analysis ------
 function analyzeJoke(joke) {
   const emojiRegex = /[\u{1F300}-\u{1F9FF}]/u;
   const wordplayPatterns = [
     /homophone/i, /double sens/i, /paronomase/i, /calembour/i,
-    /play on words/i
+    /play on words/i, /contrep[ée]terie/i
   ];
 
   return {
@@ -88,6 +163,7 @@ function analyzeJoke(joke) {
   };
 }
 
+// ------ Validation ------
 function hasTwist(joke) {
   const lower = joke.toLowerCase();
 
@@ -129,7 +205,7 @@ function hasTwist(joke) {
   ];
   if (twistIndicators.some(w => lower.includes(w))) return true;
 
-  return lower.length > 30 && /[.!?]$/.test(lower.trim());
+  return lower.length > 30 && /[.!?…]$/.test(lower.trim());
 }
 
 function validateJoke(joke) {
@@ -140,55 +216,93 @@ function validateJoke(joke) {
   return hasTwist(trimmed);
 }
 
-function getPromptForModel(model, bestJokes, recentJokes, worstJokes, stats = {}) {
-  const best = bestJokes.map(j => `- ${j.content}`).join('\n');
-  const recent = recentJokes.map(j => `- ${j.content}`).join('\n');
-  const worst = worstJokes.map(j => `- ${j.content}`).join('\n');
-
-  let styleHints = '';
-  if (stats.wordplayRate >= 0.6) styleHints += '\n* privilégie les jeux de mots';
-  if (stats.emojiRate >= 0.6) styleHints += '\n* utilise souvent des emojis';
-  if (stats.avgLength < 50) styleHints += '\n* très concis';
-  else if (stats.avgLength <= 90) styleHints += '\n* longueur moyenne';
-  else styleHints += '\n* plutôt long mais percutant';
-
-  return `Tu es un humoriste français avec un humour noir, absurde et cynique.
-
-OBJECTIF :
-Faire rire, surprendre.
-
-STRUCTURE :
-* 1 setup
-* 1 punchline
-
-RÈGLES :
-* 1 ou 2 phrases max
-* pas d'explication
-* pas de morale
-* punchline imprévisible
-
-MAUVAIS :
-* blagues plates
-* logique évidente
-
-EXEMPLES DRÔLES :
-${best || 'Aucun pour le moment'}
-
-À ÉVITER :
-${worst || 'Aucun pour le moment'}
-${recent || 'Aucun pour le moment'}
-STYLE${styleHints}
-
-CONSIGNE :
-Génère UNE blague avec un vrai twist.`;
+// ------ Duplicate detection with n-gram overlap ------
+function ngrams(text, n) {
+  const words = text.toLowerCase().split(/\W+/).filter(w => w.length >= 3);
+  const result = new Set();
+  for (let i = 0; i <= words.length - n; i++) {
+    result.add(words.slice(i, i + n).join(' '));
+  }
+  return result;
 }
 
-async function callOllama(prompt) {
+function isTooSimilar(a, b) {
+  if (a.length < 20 || b.length < 20) return a.includes(b.substring(0, 15)) || b.includes(a.substring(0, 15));
+  const bigramsA = ngrams(a, 2);
+  const bigramsB = ngrams(b, 2);
+  if (bigramsA.size === 0 || bigramsB.size === 0) return false;
+  let overlap = 0;
+  for (const bg of bigramsA) {
+    if (bigramsB.has(bg)) overlap++;
+  }
+  return overlap / Math.min(bigramsA.size, bigramsB.size) > 0.5;
+}
+
+// ------ Prompt generation ------
+function getTargetLength(bestJokes) {
+  const lengths = bestJokes.map(j => (j.content || '').length).filter(l => l > 0);
+  if (lengths.length < 2) return 'courte et percutante';
+  const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  if (avg < 50) return 'très concise, une phrase courte';
+  if (avg < 80) return 'moyenne, deux phrases max';
+  if (avg < 110) return 'un peu développée mais punchline courte';
+  return 'courte et percutante';
+}
+
+function getPromptForModel(model, bestJokes, recentJokes, worstJokes, style, stats = {}) {
+  const curatedBest = db.prepare(`
+    SELECT content FROM curated_examples WHERE approved = 1 ORDER BY RANDOM() LIMIT 3
+  `).all();
+
+  const bestExamples = [...curatedBest, ...bestJokes].slice(0, 4);
+  const bestText = bestExamples.map(j => `- ${j.content}`).join('\n');
+  const recentText = recentJokes.slice(0, 3).map(j => `- ${j.content}`).join('\n');
+  const worstText = worstJokes.slice(0, 3).map(j => `- ${j.content}`).join('\n');
+  const lengthGuide = getTargetLength(bestJokes);
+
+  let styleHints = '';
+  if (stats.wordplayRate >= 0.5) styleHints += '\n* les blagues les mieux notées utilisent des jeux de mots';
+  if (stats.emojiRate >= 0.4) styleHints += '\n* les emojis sont appréciés';
+  if (stats.avgLength && stats.avgLength > 0) {
+    styleHints += `\n* la longueur idéale est d'environ ${Math.round(stats.avgLength)} caractères`;
+  }
+
+  return `Tu es un humoriste français. Style demandé : ${style.label}.
+
+DESCRIPTION DU STYLE :
+${style.desc}
+
+RÈGLES STRICTES :
+* 1 ou 2 phrases max
+* pas de texte d'introduction ("voici", "je vous propose")
+* pas d'explication après la chute
+* pas de morale
+* réponse directe : UNE SEULE BLAGUE, RIEN D'AUTRE
+
+LONGUEUR : ${lengthGuide}
+TON : ${style.desc}
+
+ANTI-PATRONS (ne surtout pas faire) :
+${worstText || '* blagues prévisibles\n* logique trop évidente\n* chute attendue'}
+
+EXEMPLES QUI MARCHENT BIEN :
+${bestText || 'Aucun pour le moment'}
+
+ÉVITE CES THÈMES DÉJÀ VUS (ne pas répéter) :
+${recentText || 'Aucun pour le moment'}
+${styleHints}
+
+CONSIGNE FINALE :
+Génère UNE blague en français avec un vrai twist, dans le style "${style.label}".`;
+}
+
+// ------ API calls ------
+async function callOllama(prompt, temperature) {
   const payload = {
     model: currentModel,
     prompt,
     stream: false,
-    options: { temperature: 0.85, num_predict: 120, top_p: 0.92 }
+    options: { temperature, num_predict: 150, top_p: 0.92 }
   };
 
   const controller = new AbortController();
@@ -240,19 +354,49 @@ async function callGpto(prompt) {
   }
 }
 
+function cleanJoke(joke) {
+  let cleaned = joke.trim();
+  cleaned = cleaned.replace(/^['"-]+/, '').replace(/['"-]+$/, '').trim();
+
+  const lines = cleaned.split('\n').filter(l => {
+    const t = l.trim();
+    if (!t) return false;
+    if (/^(Voici|voici|Je vous propose|En voici|Génér[ée]|Je g[ée]n[èe]re|Setup|Punchline|Bienvenue|Salut|Bonjour|Réponse|Blague|Titre)/i.test(t)) return false;
+    return true;
+  });
+  cleaned = lines.join(' ').replace(/^['"'*\-–—\s]+|['"'*\-–—\s]+$/g, '').trim();
+
+  return cleaned;
+}
+
+// ------ Auto-curation ------
+function autoCurate() {
+  const candidates = db.prepare(`
+    SELECT content FROM jokes
+    WHERE likes >= 2 AND dislikes = 0
+    AND content NOT IN (SELECT content FROM curated_examples)
+  `).all();
+
+  const ins = db.prepare('INSERT OR IGNORE INTO curated_examples (content, approved, notes) VALUES (?, 1, ?)');
+  for (const c of candidates) {
+    ins.run(c.content, 'auto-curated (likes>=2, dislikes=0)');
+  }
+}
+
+// ------ Endpoints ------
 app.post('/api/generate', async (req, res) => {
   const bestJokes = db.prepare(`
     SELECT id, content, has_emoji, has_wordplay
     FROM jokes
-    WHERE likes >= 3 AND dislikes = 0
-    ORDER BY likes DESC
+    WHERE likes >= 2 AND dislikes = 0
+    ORDER BY likes DESC, rating DESC
     LIMIT 5
   `).all();
 
   const worstJokes = db.prepare(`
     SELECT content FROM jokes
-    WHERE dislikes >= 2
-    ORDER BY rating ASC
+    WHERE dislikes >= 1 AND likes = 0
+    ORDER BY dislikes DESC, rating ASC
     LIMIT 4
   `).all();
 
@@ -261,6 +405,8 @@ app.post('/api/generate', async (req, res) => {
     ORDER BY created_at DESC
     LIMIT 10
   `).all();
+
+  const style = pickStyle();
 
   let joke = '';
   let attempts = 0;
@@ -273,32 +419,18 @@ app.post('/api/generate', async (req, res) => {
   };
 
   while (attempts < maxAttempts) {
-    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes.slice(0, 5), worstJokes, stats);
+    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes, worstJokes, style, stats);
     try {
       let out;
       if (currentModel === 'gpto') {
         out = await callGpto(prompt);
       } else {
-        out = await callOllama(prompt);
+        out = await callOllama(prompt, style.temperature);
       }
       joke = (typeof out === 'string') ? out.trim() : '';
+      joke = cleanJoke(joke);
 
-      joke = joke.replace(/^['"-]+/, '').replace(/['"-]+$/, '').trim();
-
-      const lines = joke.split('\n').filter(l => {
-        const t = l.trim();
-        if (!t) return false;
-        if (/^(Voici|voici|Je vous propose|En voici|Génér[ée]|Je g[ée]n[èe]re|Setup|Punchline|Bienvenue|Salut|Bonjour)/i.test(t)) return false;
-        return true;
-      });
-      joke = lines.join(' ').replace(/^['"'*\-–—\s]+|['"'*\-–—\s]+$/g, '').trim();
-
-      const isDuplicate = recentJokes.some(r => {
-        if (joke.length > 20 && r.content.includes(joke.substring(0, 20))) return true;
-        if (r.content.length > 20 && joke.includes(r.content.substring(0, 20))) return true;
-        return false;
-      });
-
+      const isDuplicate = recentJokes.some(r => isTooSimilar(joke, r.content));
       if (isDuplicate) {
         attempts++;
         continue;
@@ -309,12 +441,14 @@ app.post('/api/generate', async (req, res) => {
         if (!exists) {
           const features = analyzeJoke(joke);
           const info = db.prepare(`
-            INSERT INTO jokes (content, category, length, has_emoji, has_wordplay)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(joke, 'joke', features.length, features.has_emoji, features.has_wordplay);
-          db.prepare(`INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?)`)
-            .run(info.lastInsertRowid, joke, 0, features.length, features.has_emoji, features.has_wordplay);
-          res.json({ joke });
+            INSERT INTO jokes (content, category, length, has_emoji, has_wordplay, prompt_style, temperature)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(joke, style.id, features.length, features.has_emoji, features.has_wordplay, style.id, style.temperature);
+          db.prepare(`INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay, prompt_style) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(info.lastInsertRowid, joke, 0, features.length, features.has_emoji, features.has_wordplay, style.id);
+          recordStyleUsed(style.id);
+          autoCurate();
+          res.json({ joke, style: style.label });
           return;
         }
       }
@@ -337,12 +471,17 @@ app.post('/api/rate', (req, res) => {
 
     const features = analyzeJoke(joke);
 
-    const row = db.prepare('SELECT id FROM jokes WHERE content = ?').get(joke);
+    const row = db.prepare('SELECT id, prompt_style FROM jokes WHERE content = ?').get(joke);
     if (row) {
         db.prepare('UPDATE jokes SET rating = rating + ?, likes = likes + ?, dislikes = dislikes + ? WHERE id = ?')
           .run(rating, rating > 0 ? 1 : 0, rating < 0 ? 1 : 0, row.id);
-        db.prepare('INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(row.id, joke, rating, features.length, features.has_emoji, features.has_wordplay);
+        db.prepare('INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay, prompt_style) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(row.id, joke, rating, features.length, features.has_emoji, features.has_wordplay, row.prompt_style);
+        if (row.prompt_style) {
+          recordStyleFeedback(row.prompt_style, rating);
+          db.prepare('INSERT INTO style_log (style, joke_id, rating) VALUES (?, ?, ?)').run(row.prompt_style, row.id, rating);
+        }
+        autoCurate();
     } else {
         const info = db.prepare('INSERT INTO jokes (content, category, rating, likes, dislikes, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
           .run(joke, 'joke', rating, rating > 0 ? 1 : 0, rating < 0 ? 1 : 0, features.length, features.has_emoji, features.has_wordplay);
@@ -409,10 +548,26 @@ app.post('/admin/reset-db', (req, res) => {
   }
 });
 
+app.get('/admin/style-stats', (req, res) => {
+  const styles = db.prepare(`
+    SELECT style, uses, likes, dislikes, total_rating,
+      ROUND(CAST(likes AS REAL) / MAX(uses, 1), 2) as like_rate,
+      ROUND(CAST(total_rating AS REAL) / MAX(uses, 1), 2) as avg_rating
+    FROM prompt_styles ORDER BY like_rate DESC
+  `).all();
+
+  const bestStyle = db.prepare(`
+    SELECT style, ROUND(AVG(rating), 2) as avg_rating, COUNT(*) as count
+    FROM style_log GROUP BY style ORDER BY avg_rating DESC
+  `).all();
+
+  res.json({ styleStats: styles, bestPerformers: bestStyle });
+});
+
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`HTTP server listening on 0.0.0.0:${PORT}`);
     });
 }
 
-module.exports = { app, validateJoke, getPromptForModel };
+module.exports = { app, validateJoke, getPromptForModel, HUMOR_STYLES, pickStyle };
