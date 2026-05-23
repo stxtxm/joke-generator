@@ -5,6 +5,13 @@ import Controls from './components/Controls.js'
 import Admin from './Admin.js'
 import { generateJoke, rateJoke, getMetrics } from './lib/api.js'
 
+function loadRatedJokes() {
+  try { return JSON.parse(localStorage.getItem('ratedJokes') || '{}') } catch { return {} }
+}
+function saveRatedJokes(map) {
+  localStorage.setItem('ratedJokes', JSON.stringify(map))
+}
+
 export default function App() {
   const [joke, setJoke] = useState('Appuyez sur "Nouvelle blague" pour commencer.')
   const [loading, setLoading] = useState(false)
@@ -25,8 +32,13 @@ export default function App() {
     try {
       const res = await generateJoke()
       setJoke(res.joke || 'Erreur lors de la génération')
+      const rated = loadRatedJokes()
+      const prev = rated[res.joke] || 0
+      setUserRating(prev)
       setMetrics({ likes: 0, dislikes: 0, rating: 0 })
-      setUserRating(0)
+      if (prev) {
+        getMetrics(res.joke).then(m => { if (m) setMetrics(m) }).catch(() => {})
+      }
     } catch (e) {
       setJoke('Erreur réseau')
     } finally {
@@ -36,15 +48,25 @@ export default function App() {
 
   function handleRate(r) {
     if (!joke || joke.startsWith('Appuyez') || loading) return
-    if (userRating === r) {
+    const rated = loadRatedJokes()
+    const prev = rated[joke] || 0
+    if (prev === r) {
+      rated[joke] = 0
+      saveRatedJokes(rated)
       setUserRating(0)
-      rateJoke(joke, 0).catch(() => {})
+      rateJoke(joke, 0).then(resp => {
+        if (resp.metrics) setMetrics(resp.metrics)
+      }).catch(() => {})
       return
     }
+    rated[joke] = r
+    saveRatedJokes(rated)
     setUserRating(r)
     rateJoke(joke, r).then(resp => {
       if (resp.metrics) setMetrics(resp.metrics)
     }).catch(() => {
+      rated[joke] = prev
+      saveRatedJokes(rated)
       setUserRating(0)
     })
   }

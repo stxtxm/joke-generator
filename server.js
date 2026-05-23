@@ -109,17 +109,22 @@ const HUMOR_STYLES = [
 ];
 
 let styleIndex = 0;
+let promptVersion = 1;
 
 function pickStyle() {
-  const bestStyle = db.prepare(`
-    SELECT style FROM prompt_styles
-    WHERE uses >= 2
-    ORDER BY (CAST(likes AS REAL) / MAX(uses, 1)) DESC, total_rating DESC
-    LIMIT 1
-  `).get();
+  // Epsilon-greedy: 70% exploit best style, 30% explore
+  const stylesWithStats = db.prepare(`
+    SELECT style, uses, likes, total_rating,
+      ROUND(CAST(likes AS REAL) / MAX(uses, 1), 4) as win_rate,
+      (CAST(likes AS REAL) + 1.0) / (MAX(uses, 1) + 2.0) as win_rate_laplace
+    FROM prompt_styles
+    WHERE uses >= 1
+    ORDER BY win_rate_laplace DESC
+  `).all();
 
-  if (bestStyle && Math.random() < 0.6) {
-    const found = HUMOR_STYLES.find(s => s.id === bestStyle.style);
+  if (stylesWithStats.length > 0 && Math.random() < 0.7) {
+    const best = stylesWithStats[0];
+    const found = HUMOR_STYLES.find(s => s.id === best.style);
     if (found) return found;
   }
 
@@ -136,16 +141,15 @@ function recordStyleUsed(style) {
   `).run(style);
 }
 
-function recordStyleFeedback(style, rating) {
-  const likeInc = rating > 0 ? 1 : 0;
-  const dislikeInc = rating < 0 ? 1 : 0;
+function recordStyleFeedback(style, likeDelta, dislikeDelta, ratingDelta) {
+  if (!style) return;
   db.prepare(`
     UPDATE prompt_styles SET
       likes = likes + ?,
       dislikes = dislikes + ?,
       total_rating = total_rating + ?
     WHERE style = ?
-  `).run(likeInc, dislikeInc, rating, style);
+  `).run(likeDelta || 0, dislikeDelta || 0, ratingDelta || 0, style);
 }
 
 // ------ Analysis ------
@@ -226,7 +230,7 @@ function ngrams(text, n) {
   return result;
 }
 
-function isTooSimilar(a, b) {
+function isTooSimilar(a, b, totalJokes = 0) {
   if (a.length < 20 || b.length < 20) return a.includes(b.substring(0, 15)) || b.includes(a.substring(0, 15));
   const bigramsA = ngrams(a, 2);
   const bigramsB = ngrams(b, 2);
@@ -235,7 +239,9 @@ function isTooSimilar(a, b) {
   for (const bg of bigramsA) {
     if (bigramsB.has(bg)) overlap++;
   }
-  return overlap / Math.min(bigramsA.size, bigramsB.size) > 0.5;
+  // Adaptive threshold: stricter as DB grows
+  const threshold = totalJokes >= 20 ? 0.35 : totalJokes >= 10 ? 0.40 : 0.50;
+  return overlap / Math.min(bigramsA.size, bigramsB.size) > threshold;
 }
 
 // ------ Prompt generation ------
@@ -373,7 +379,7 @@ function cleanJoke(joke) {
 function autoCurate() {
   const candidates = db.prepare(`
     SELECT content FROM jokes
-    WHERE likes >= 2 AND dislikes = 0
+    WHERE (likes > 0 AND dislikes = 0 AND rating >= 2)
     AND content NOT IN (SELECT content FROM curated_examples)
   `).all();
 
@@ -385,18 +391,24 @@ function autoCurate() {
 
 // ------ Endpoints ------
 app.post('/api/generate', async (req, res) => {
+  const totalJokes = db.prepare('SELECT COUNT(1) as c FROM jokes').get().c;
+
   const bestJokes = db.prepare(`
     SELECT id, content, has_emoji, has_wordplay
     FROM jokes
-    WHERE likes >= 2 AND dislikes = 0
-    ORDER BY likes DESC, rating DESC
+    WHERE likes >= 1 AND dislikes = 0
+    ORDER BY
+      (likes * 2.0 + rating) / MAX(1.0, (julianday('now') - julianday(created_at)) * 0.1 + 1.0) DESC,
+      rating DESC
     LIMIT 5
   `).all();
 
   const worstJokes = db.prepare(`
     SELECT content FROM jokes
     WHERE dislikes >= 1 AND likes = 0
-    ORDER BY dislikes DESC, rating ASC
+    ORDER BY
+      (dislikes * 2.0 - rating) / MAX(1.0, (julianday('now') - julianday(created_at)) * 0.1 + 1.0) DESC,
+      created_at DESC
     LIMIT 4
   `).all();
 
@@ -430,7 +442,7 @@ app.post('/api/generate', async (req, res) => {
       joke = (typeof out === 'string') ? out.trim() : '';
       joke = cleanJoke(joke);
 
-      const isDuplicate = recentJokes.some(r => isTooSimilar(joke, r.content));
+      const isDuplicate = recentJokes.some(r => isTooSimilar(joke, r.content, totalJokes));
       if (isDuplicate) {
         attempts++;
         continue;
@@ -441,9 +453,9 @@ app.post('/api/generate', async (req, res) => {
         if (!exists) {
           const features = analyzeJoke(joke);
           const info = db.prepare(`
-            INSERT INTO jokes (content, category, length, has_emoji, has_wordplay, prompt_style, temperature)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(joke, style.id, features.length, features.has_emoji, features.has_wordplay, style.id, style.temperature);
+            INSERT INTO jokes (content, category, length, has_emoji, has_wordplay, prompt_style, temperature, prompt_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(joke, style.id, features.length, features.has_emoji, features.has_wordplay, style.id, style.temperature, promptVersion);
           db.prepare(`INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay, prompt_style) VALUES (?, ?, ?, ?, ?, ?, ?)`)
             .run(info.lastInsertRowid, joke, 0, features.length, features.has_emoji, features.has_wordplay, style.id);
           recordStyleUsed(style.id);
@@ -471,20 +483,49 @@ app.post('/api/rate', (req, res) => {
 
     const features = analyzeJoke(joke);
 
-    const row = db.prepare('SELECT id, prompt_style FROM jokes WHERE content = ?').get(joke);
+    const row = db.prepare('SELECT id, prompt_style, likes, dislikes, rating FROM jokes WHERE content = ?').get(joke);
     if (row) {
-        db.prepare('UPDATE jokes SET rating = rating + ?, likes = likes + ?, dislikes = dislikes + ? WHERE id = ?')
-          .run(rating, rating > 0 ? 1 : 0, rating < 0 ? 1 : 0, row.id);
+        let newLikes = row.likes;
+        let newDislikes = row.dislikes;
+
+        if (rating > 0) {
+          if (row.likes > 0) {
+            // Already liked → no change (idempotent)
+          } else if (row.dislikes > 0) {
+            newLikes = 1; newDislikes = 0;
+          } else {
+            newLikes = 1; newDislikes = 0;
+          }
+        } else if (rating < 0) {
+          if (row.dislikes > 0) {
+            // Already disliked → no change (idempotent)
+          } else if (row.likes > 0) {
+            newLikes = 0; newDislikes = 1;
+          } else {
+            newLikes = 0; newDislikes = 1;
+          }
+        } else {
+          newLikes = 0; newDislikes = 0;
+        }
+
+        const likeDelta = newLikes - row.likes;
+        const dislikeDelta = newDislikes - row.dislikes;
+        const ratingDelta = likeDelta - dislikeDelta;
+
+        db.prepare('UPDATE jokes SET rating = rating + ?, likes = ?, dislikes = ? WHERE id = ?')
+          .run(ratingDelta, newLikes, newDislikes, row.id);
         db.prepare('INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay, prompt_style) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(row.id, joke, rating, features.length, features.has_emoji, features.has_wordplay, row.prompt_style);
-        if (row.prompt_style) {
-          recordStyleFeedback(row.prompt_style, rating);
-          db.prepare('INSERT INTO style_log (style, joke_id, rating) VALUES (?, ?, ?)').run(row.prompt_style, row.id, rating);
+          .run(row.id, joke, ratingDelta, features.length, features.has_emoji, features.has_wordplay, row.prompt_style);
+        if (row.prompt_style && (likeDelta !== 0 || dislikeDelta !== 0)) {
+          recordStyleFeedback(row.prompt_style, likeDelta, dislikeDelta, ratingDelta);
+          db.prepare('INSERT INTO style_log (style, joke_id, rating) VALUES (?, ?, ?)').run(row.prompt_style, row.id, ratingDelta);
         }
         autoCurate();
     } else {
+        const likes = rating > 0 ? 1 : 0;
+        const dislikes = rating < 0 ? 1 : 0;
         const info = db.prepare('INSERT INTO jokes (content, category, rating, likes, dislikes, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(joke, 'joke', rating, rating > 0 ? 1 : 0, rating < 0 ? 1 : 0, features.length, features.has_emoji, features.has_wordplay);
+          .run(joke, 'joke', rating, likes, dislikes, features.length, features.has_emoji, features.has_wordplay);
         db.prepare('INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?)')
           .run(info.lastInsertRowid, joke, rating, features.length, features.has_emoji, features.has_wordplay);
     }
