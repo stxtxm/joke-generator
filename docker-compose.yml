@@ -32,6 +32,21 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  gpto:
+    build: /home/timo/dev/gpto
+    container_name: gpto-service
+    ports:
+      - "8005:8000"
+      - "5905:5900"
+      - "6085:6080"
+    volumes:
+      - /home/timo/dev/gpto/chrome_profile:/app/chrome_profile
+      - /home/timo/dev/gpto/screenshots:/app/screenshots
+    environment:
+      - BROWSER_HEADLESS=false
+      - API_PORT=8000
+    restart: unless-stopped
+
   train:
     build:
       context: .

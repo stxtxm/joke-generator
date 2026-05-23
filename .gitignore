@@ -10,3 +10,4 @@ dist/
 *.key
 get-joke.sh
 admin.html
+.aider*

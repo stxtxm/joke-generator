@@ -16,9 +16,7 @@ export default function Admin() {
 
       const mr = await fetch('/admin/models')
       const mj = await mr.json()
-      // If mode is gemini, the active selection should be 'gemini-2.5-flash-lite'
-      const active = mj.mode === 'gemini' ? 'gemini-2.5-flash-lite' : mj.current
-      setModels({ list: mj.models, current: active })
+      setModels({ list: mj.models, current: mj.current })
     } catch (e) {
       console.error('Admin load failed', e)
     }
