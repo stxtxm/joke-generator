@@ -53,7 +53,7 @@ initDb();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-let currentModel = 'llama3.2:3b';
+let currentModel = 'gemini';
 
 const { getAvailableModels } = require('./lib/models');
 
@@ -106,6 +106,13 @@ const HUMOR_STYLES = [
     desc: 'calembours, doubles sens, paronomases, contrepèteries légères.',
     temperature: 0.75
   }
+];
+
+const FALLBACK_JOKES = [
+  "J'ai un ami qui est mort d'une overdose de Viagra. Le plus dur pour sa famille, ça a été de fermer le cercueil.",
+  "L'avantage avec les orphelins, c'est que tu peux pas les menacer d'appeler leurs parents.",
+  "C'est un mec qui tweete : 'Je viens de percuter un piéton, je fais quoi ?' Un internaute répond : 'Recule pour être sûr, ça t'évitera de payer les frais d'hôpital pendant 40 ans.'",
+  "Ma grand-mère m'a dit : 'À mon époque, on n'avait pas besoin de thérapeute, on réglait nos problèmes nous-mêmes.' Du coup je lui ai rappelé que son frère est mort d'un duel à la carabine pour une histoire de poule."
 ];
 
 let styleIndex = 0;
@@ -244,6 +251,85 @@ function isTooSimilar(a, b, totalJokes = 0) {
   return overlap / Math.min(bigramsA.size, bigramsB.size) > threshold;
 }
 
+// ------ Adaptive rules (feedback loop) ------
+function extractJokePatterns(joke) {
+  const patterns = [];
+  const lower = joke.trim().toLowerCase();
+  const words = lower.split(/\s+/).filter(Boolean);
+  const firstWord = words[0] || '';
+  const firstTwo = words.slice(0, 2).join(' ');
+
+  if (firstWord) patterns.push(`start:${firstWord.replace(/[^a-z0-9éèàùêâîôûäëïöü']/g, '')}`);
+  if (firstTwo && words.length >= 2) patterns.push(`start2:${firstTwo.replace(/[^a-z0-9éèàùêâîôûäëïöü' ]/g, '')}`);
+
+  if (/^j['\s]ai/.test(lower)) patterns.push('starts_with:j_ai');
+  if (/^c['\s]est/.test(lower)) patterns.push('starts_with:c_est');
+
+  const len = joke.trim().length;
+  if (len < 50) patterns.push('length:short');
+  else if (len < 100) patterns.push('length:medium');
+  else patterns.push('length:long');
+
+  return patterns;
+}
+
+function updatePromptRules(joke, isLike) {
+  const patterns = extractJokePatterns(joke);
+  const upsert = db.prepare(`
+    INSERT INTO prompt_rules (pattern, likes, dislikes, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(pattern) DO UPDATE SET
+      likes = likes + ?,
+      dislikes = dislikes + ?,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  for (const pattern of patterns) {
+    upsert.run(pattern, isLike ? 1 : 0, isLike ? 0 : 1, isLike ? 1 : 0, isLike ? 0 : 1);
+  }
+}
+
+function getAdaptiveRules() {
+  const rows = db.prepare(`
+    SELECT pattern, likes, dislikes,
+      ROUND(CAST(likes AS REAL) / MAX(likes + dislikes, 1), 2) as like_rate,
+      (likes + dislikes) as total
+    FROM prompt_rules
+    WHERE (likes + dislikes) >= 4
+    ORDER BY total DESC, like_rate DESC
+    LIMIT 15
+  `).all();
+
+  const totalEvals = rows.reduce((s, r) => s + r.total, 0);
+  if (totalEvals < 6) return { avoid: [], encourage: [] };
+
+  const avoid = rows
+    .filter(r => r.like_rate < 0.4 && (r.pattern.startsWith('start:') || r.pattern.startsWith('starts_with:')))
+    .slice(0, 3)
+    .map(r => r.pattern);
+
+  const encourage = rows
+    .filter(r => r.like_rate >= 0.6 && r.pattern.startsWith('length:'))
+    .slice(0, 2)
+    .map(r => r.pattern);
+
+  return { avoid, encourage };
+}
+
+function formatPromptPattern(pattern) {
+  const map = {
+    'starts_with:j_ai': 'commencer par "J\'ai"',
+    'starts_with:c_est': 'commencer par "C\'est"',
+    'length:short': 'blague très courte',
+    'length:medium': 'blague de longueur moyenne',
+    'length:long': 'blague développée'
+  };
+  if (map[pattern]) return map[pattern];
+  if (pattern.startsWith('start:')) return `commencer par "${pattern.slice(6)}"`;
+  if (pattern.startsWith('start2:')) return `commencer par "${pattern.slice(7)}"`;
+  return pattern;
+}
+
 // ------ Prompt generation ------
 function getTargetLength(bestJokes) {
   const lengths = bestJokes.map(j => (j.content || '').length).filter(l => l > 0);
@@ -255,22 +341,37 @@ function getTargetLength(bestJokes) {
   return 'courte et percutante';
 }
 
-function getPromptForModel(model, bestJokes, recentJokes, worstJokes, style, stats = {}) {
-  const curatedBest = db.prepare(`
-    SELECT content FROM curated_examples WHERE approved = 1 ORDER BY RANDOM() LIMIT 3
-  `).all();
+function getFallbackJoke() {
+  return FALLBACK_JOKES[Math.floor(Math.random() * FALLBACK_JOKES.length)];
+}
 
-  const bestExamples = [...curatedBest, ...bestJokes].slice(0, 4);
-  const bestText = bestExamples.map(j => `- ${j.content}`).join('\n');
-  const recentText = recentJokes.slice(0, 3).map(j => `- ${j.content}`).join('\n');
+function getOllamaPrompt(bestJokes, style) {
+  const example = bestJokes.length > 0 ? bestJokes[0].content : getFallbackJoke();
+  return `Style: ${style.label}
+Exemple: ${example}
+Génère UNE blague en français. Pas de "Pourquoi". Pas de "J'ai". Varie la structure.`;
+}
+
+function getGeminiPrompt(bestJokes, recentJokes, worstJokes, style, stats = {}) {
+  const bestText = bestJokes.slice(0, 4).map(j => `- ${j.content}`).join('\n') || `- ${getFallbackJoke()}`;
   const worstText = worstJokes.slice(0, 3).map(j => `- ${j.content}`).join('\n');
+  const recentText = recentJokes.slice(0, 3).map(j => `- ${j.content}`).join('\n');
   const lengthGuide = getTargetLength(bestJokes);
+  const { avoid, encourage } = getAdaptiveRules();
 
   let styleHints = '';
-  if (stats.wordplayRate >= 0.5) styleHints += '\n* les blagues les mieux notées utilisent des jeux de mots';
-  if (stats.emojiRate >= 0.4) styleHints += '\n* les emojis sont appréciés';
+  if (stats.wordplayRate >= 0.5) styleHints += '\n- les blagues que tu as aimées utilisent des jeux de mots';
+  if (stats.emojiRate >= 0.4) styleHints += '\n- les emojis sont appréciés';
   if (stats.avgLength && stats.avgLength > 0) {
-    styleHints += `\n* la longueur idéale est d'environ ${Math.round(stats.avgLength)} caractères`;
+    styleHints += `\n- la longueur idéale est d'environ ${Math.round(stats.avgLength)} caractères`;
+  }
+
+  let adaptiveSection = '';
+  if (avoid.length > 0) {
+    adaptiveSection += `\nÉVITE ABSOLUMENT ces structures (mal notées par le passé) :\n${avoid.map(p => `- ${formatPromptPattern(p)}`).join('\n')}\n`;
+  }
+  if (encourage.length > 0) {
+    adaptiveSection += `\nPRIVILÉGIE ces structures (bien notées par le passé) :\n${encourage.map(p => `- ${formatPromptPattern(p)}`).join('\n')}\n`;
   }
 
   return `Tu es un humoriste français. Style demandé : ${style.label}.
@@ -278,37 +379,36 @@ function getPromptForModel(model, bestJokes, recentJokes, worstJokes, style, sta
 DESCRIPTION DU STYLE :
 ${style.desc}
 
+EXEMPLES VALIDÉS (tu as aimé ces blagues — inspire-toi de leur structure et de leur ton) :
+${bestText}
+
+${worstText ? `CONTRE-EXEMPLES (tu n'as PAS aimé ces blagues — évite ce genre de chute) :\n${worstText}\n` : ''}
+${recentText ? `THÈMES DÉJÀ VUS (ne pas répéter) :\n${recentText}\n` : ''}
+${adaptiveSection}
 RÈGLES STRICTES :
 * 1 ou 2 phrases max
-* pas de texte d'introduction ("voici", "je vous propose")
+* NE COMMENCE JAMAIS par "J'ai", "C'est", "Un", "Une", "Il", "Elle"
+* VARIATION OBLIGATOIRE : alterne les structures (question rhétorique, constat absurde, parallèle inattendu, situation hypothétique)
+* pas de texte d'introduction ("voici", "je vous propose", "en voici une")
 * pas d'explication après la chute
 * pas de morale
 * réponse directe : UNE SEULE BLAGUE, RIEN D'AUTRE
 
 LONGUEUR : ${lengthGuide}
-TON : ${style.desc}
-
-ANTI-PATRONS (ne surtout pas faire) :
-${worstText || '* blagues prévisibles\n* logique trop évidente\n* chute attendue'}
-
-EXEMPLES QUI MARCHENT BIEN :
-${bestText || 'Aucun pour le moment'}
-
-ÉVITE CES THÈMES DÉJÀ VUS (ne pas répéter) :
-${recentText || 'Aucun pour le moment'}
 ${styleHints}
 
 CONSIGNE FINALE :
-Génère UNE blague en français avec un vrai twist, dans le style "${style.label}".`;
+Génère UNE blague en français avec un vrai twist, dans le style "${style.label}". Trouve un angle original — évite les formulations attendues.`;
 }
 
 // ------ API calls ------
 async function callOllama(prompt, temperature) {
+  const model = currentModel === 'gemini' ? (process.env.OLLAMA_MODEL || 'qwen2.5:1.5b') : currentModel;
   const payload = {
-    model: currentModel,
+    model,
     prompt,
     stream: false,
-    options: { temperature, num_predict: 150, top_p: 0.92 }
+    options: { temperature, num_predict: 40, top_p: 0.85, top_k: 40, num_ctx: 512 }
   };
 
   const controller = new AbortController();
@@ -334,30 +434,63 @@ async function callOllama(prompt, temperature) {
   }
 }
 
-async function callGpto(prompt) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 120000);
-
-  try {
-    const res = await fetch('http://gpto-service:8000/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-      signal: controller.signal
-    });
-
-    clearTimeout(id);
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.detail || `GPTO error: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.response || '';
-  } catch (e) {
-    clearTimeout(id);
-    throw e;
+async function callGemini(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.log('No GEMINI_API_KEY set, skipping Gemini');
+    return '';
   }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+  const maxRetries = 3;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 30000);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.9, maxOutputTokens: 150 }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(id);
+
+      if (res.status === 429) {
+        const wait = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 10000);
+        console.log(`Gemini rate limited, retry ${attempt + 1}/${maxRetries} in ${Math.round(wait)}ms`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Gemini API error ${res.status}: ${err}`);
+      }
+
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (text) console.log('Gemini API OK');
+      return text;
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        console.log('Gemini API timeout');
+        return '';
+      }
+      if (attempt === maxRetries - 1) {
+        console.log(`Gemini failed after ${maxRetries} retries: ${e.message}`);
+        return '';
+      }
+      const wait = Math.min(1000 * Math.pow(2, attempt), 5000);
+      console.log(`Gemini error, retry ${attempt + 1}/${maxRetries}: ${e.message}`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+  return '';
 }
 
 function cleanJoke(joke) {
@@ -373,20 +506,6 @@ function cleanJoke(joke) {
   cleaned = lines.join(' ').replace(/^['"'*\-–—\s]+|['"'*\-–—\s]+$/g, '').trim();
 
   return cleaned;
-}
-
-// ------ Auto-curation ------
-function autoCurate() {
-  const candidates = db.prepare(`
-    SELECT content FROM jokes
-    WHERE (likes > 0 AND dislikes = 0 AND rating >= 2)
-    AND content NOT IN (SELECT content FROM curated_examples)
-  `).all();
-
-  const ins = db.prepare('INSERT OR IGNORE INTO curated_examples (content, approved, notes) VALUES (?, 1, ?)');
-  for (const c of candidates) {
-    ins.run(c.content, 'auto-curated (likes>=2, dislikes=0)');
-  }
 }
 
 // ------ Endpoints ------
@@ -431,12 +550,20 @@ app.post('/api/generate', async (req, res) => {
   };
 
   while (attempts < maxAttempts) {
-    const prompt = getPromptForModel(currentModel, bestJokes, recentJokes, worstJokes, style, stats);
     try {
       let out;
-      if (currentModel === 'gpto') {
-        out = await callGpto(prompt);
+      if (currentModel === 'gemini') {
+        const prompt = getGeminiPrompt(bestJokes, recentJokes, worstJokes, style, stats);
+        out = await callGemini(prompt);
+        if (!out) {
+          console.log('Gemini failed, falling back to Ollama');
+          const fallbackPrompt = getOllamaPrompt(bestJokes, style);
+          out = await callOllama(fallbackPrompt, style.temperature);
+          if (out) console.log(`Ollama fallback OK: ${out.slice(0, 60)}...`);
+          else console.log('Ollama fallback returned empty');
+        }
       } else {
+        const prompt = getOllamaPrompt(bestJokes, style);
         out = await callOllama(prompt, style.temperature);
       }
       joke = (typeof out === 'string') ? out.trim() : '';
@@ -459,7 +586,6 @@ app.post('/api/generate', async (req, res) => {
           db.prepare(`INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay, prompt_style) VALUES (?, ?, ?, ?, ?, ?, ?)`)
             .run(info.lastInsertRowid, joke, 0, features.length, features.has_emoji, features.has_wordplay, style.id);
           recordStyleUsed(style.id);
-          autoCurate();
           res.json({ joke, style: style.label });
           return;
         }
@@ -519,8 +645,8 @@ app.post('/api/rate', (req, res) => {
         if (row.prompt_style && (likeDelta !== 0 || dislikeDelta !== 0)) {
           recordStyleFeedback(row.prompt_style, likeDelta, dislikeDelta, ratingDelta);
           db.prepare('INSERT INTO style_log (style, joke_id, rating) VALUES (?, ?, ?)').run(row.prompt_style, row.id, ratingDelta);
+          updatePromptRules(joke, rating > 0);
         }
-        autoCurate();
     } else {
         const likes = rating > 0 ? 1 : 0;
         const dislikes = rating < 0 ? 1 : 0;
@@ -528,6 +654,7 @@ app.post('/api/rate', (req, res) => {
           .run(joke, 'joke', rating, likes, dislikes, features.length, features.has_emoji, features.has_wordplay);
         db.prepare('INSERT INTO feedback (joke_id, content, rating, length, has_emoji, has_wordplay) VALUES (?, ?, ?, ?, ?, ?)')
           .run(info.lastInsertRowid, joke, rating, features.length, features.has_emoji, features.has_wordplay);
+        updatePromptRules(joke, rating > 0);
     }
 
     const metrics = db.prepare('SELECT likes, dislikes, rating FROM jokes WHERE content = ?').get(joke) || { likes: 0, dislikes: 0, rating: 0 };
@@ -556,28 +683,6 @@ app.post('/admin/set-model', (req, res) => {
   res.json({ ok: true, current: currentModel });
 });
 
-app.get('/admin/curated', (req, res) => {
-  const rows = db.prepare('SELECT * FROM curated_examples ORDER BY created_at DESC').all();
-  res.json(rows);
-});
-
-app.post('/admin/curated', (req, res) => {
-  const { content, notes, approved } = req.body;
-  if (!content) return res.status(400).json({ error: 'content required' });
-  try {
-    db.prepare('INSERT INTO curated_examples (content, notes, approved) VALUES (?, ?, ?)')
-      .run(content, notes || '', approved ? 1 : 0);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.delete('/admin/curated/:id', (req, res) => {
-  db.prepare('DELETE FROM curated_examples WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
 app.post('/admin/reset-db', (req, res) => {
   try {
     db.close();
@@ -586,6 +691,15 @@ app.post('/admin/reset-db', (req, res) => {
     res.json({ ok: true, message: 'Database reset successfully' });
   } catch (e) {
     res.status(500).json({ error: 'Reset failed: ' + e.message });
+  }
+});
+
+app.post('/admin/reset-rules', (req, res) => {
+  try {
+    db.prepare('DELETE FROM prompt_rules').run();
+    res.json({ ok: true, message: 'Prompt rules reset' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -611,4 +725,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, validateJoke, getPromptForModel, HUMOR_STYLES, pickStyle };
+module.exports = { app, validateJoke, getOllamaPrompt, getGeminiPrompt, getFallbackJoke, HUMOR_STYLES, pickStyle, getAdaptiveRules };

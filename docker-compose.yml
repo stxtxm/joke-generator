@@ -19,9 +19,9 @@ services:
       - "3000:3000"
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen:1.8b}
-      - GENERATION_MODE=gemini
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - TAILSCALE_IP=${TAILSCALE_IP:-0.0.0.0}
       - EXPORT_PATH=${EXPORT_PATH:-}
       - OUTDIR=${OUTDIR:-}
@@ -32,20 +32,6 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  gpto:
-    build: /home/timo/dev/gpto
-    container_name: gpto-service
-    ports:
-      - "8005:8000"
-      - "5905:5900"
-      - "6085:6080"
-    volumes:
-      - /home/timo/dev/gpto/chrome_profile:/app/chrome_profile
-      - /home/timo/dev/gpto/screenshots:/app/screenshots
-    environment:
-      - BROWSER_HEADLESS=false
-      - API_PORT=8000
-    restart: unless-stopped
 
   train:
     build:

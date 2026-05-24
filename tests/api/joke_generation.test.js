@@ -1,5 +1,4 @@
-const { validateJoke, getPromptForModel } = require('../../server');
-
+const { validateJoke, getOllamaPrompt, getGeminiPrompt } = require('../../server');
 describe('Joke Generation Logic', () => {
   test('validateJoke should reject short jokes', () => {
     expect(validateJoke('Trop court.')).toBe(false);
@@ -9,15 +8,20 @@ describe('Joke Generation Logic', () => {
     expect(validateJoke('Ceci est une blague sans ponctuation')).toBe(false);
   });
 
-  test('getPromptForModel should not contain "UNIQUEMENT" or placeholder instructions', () => {
-    const prompt = getPromptForModel('test', [], [], [], { wordplayRate: 0, emojiRate: 0, avgLength: 100 });
-    // The prompt should tell the model what to do, not include its own instructions to us
-    expect(prompt).not.toContain('Ta réponse doit être UNIQUEMENT la blague');
+  test('getOllamaPrompt should be short even with empty bestJokes', () => {
+    const prompt = getOllamaPrompt([], { label: 'Test', desc: 'test', id: 'test', temperature: 0.8 });
+    expect(prompt.length).toBeLessThan(400);
+    expect(prompt).toContain('Test');
+  });
+
+  test('getGeminiPrompt should handle empty bestJokes gracefully', () => {
+    const prompt = getGeminiPrompt([], [], [], { label: 'Test', desc: 'test', id: 'test', temperature: 0.8 }, { wordplayRate: 0, emojiRate: 0, avgLength: 0 });
+    expect(prompt).not.toContain('undefined');
+    expect(prompt).toContain('Test');
   });
 
   test('validateJoke should accept a cynical twist', () => {
     const joke = 'Pourquoi le travail ? Parce que la paresse est un luxe.';
-    // Note: Our current hasTwist logic requires '?'
     expect(validateJoke(joke)).toBe(true);
   });
 });
