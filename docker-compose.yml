@@ -27,6 +27,7 @@ services:
       - OUTDIR=${OUTDIR:-}
     volumes:
       - /app/node_modules
+      - /home/timo/.npm-global/lib/node_modules/@google/gemini-cli:/usr/local/lib/node_modules/@google/gemini-cli:ro
     depends_on:
       ollama:
         condition: service_started

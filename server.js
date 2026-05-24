@@ -435,62 +435,36 @@ async function callOllama(prompt, temperature) {
 }
 
 async function callGemini(prompt) {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    console.log('No GEMINI_API_KEY set, skipping Gemini');
+  const geminiPath = '/usr/local/lib/node_modules/@google/gemini-cli/bundle/gemini.js';
+  const fs = require('fs');
+  if (!fs.existsSync(geminiPath)) {
+    console.log('gemini-cli not found at ' + geminiPath);
     return '';
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-  const maxRetries = 3;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 30000);
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.9, maxOutputTokens: 150 }
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(id);
-
-      if (res.status === 429) {
-        const wait = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 10000);
-        console.log(`Gemini rate limited, retry ${attempt + 1}/${maxRetries} in ${Math.round(wait)}ms`);
-        await new Promise(r => setTimeout(r, wait));
-        continue;
+  const { execFile } = require('child_process');
+  return new Promise((resolve) => {
+    const child = execFile('node', [
+      geminiPath,
+      '--skip-trust',
+      '-p', prompt,
+      '-m', 'gemini-2.5-flash-lite',
+      '-o', 'text'
+    ], {
+      timeout: 120000,
+      maxBuffer: 1024 * 1024,
+      env: { ...process.env, NODE_PATH: '/usr/local/lib/node_modules', GEMINI_CLI_TRUST_WORKSPACE: 'true' }
+    }, (err, stdout, stderr) => {
+      if (err) {
+        console.log('Gemini CLI error:', err.message);
+        resolve('');
+        return;
       }
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Gemini API error ${res.status}: ${err}`);
-      }
-
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (text) console.log('Gemini API OK');
-      return text;
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        console.log('Gemini API timeout');
-        return '';
-      }
-      if (attempt === maxRetries - 1) {
-        console.log(`Gemini failed after ${maxRetries} retries: ${e.message}`);
-        return '';
-      }
-      const wait = Math.min(1000 * Math.pow(2, attempt), 5000);
-      console.log(`Gemini error, retry ${attempt + 1}/${maxRetries}: ${e.message}`);
-      await new Promise(r => setTimeout(r, wait));
-    }
-  }
-  return '';
+      const text = stdout.trim();
+      if (text) console.log('Gemini CLI OK');
+      resolve(text);
+    });
+  });
 }
 
 function cleanJoke(joke) {
